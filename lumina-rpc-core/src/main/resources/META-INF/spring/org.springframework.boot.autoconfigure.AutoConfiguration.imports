@@ -1,0 +1,2 @@
+# Lumina-RPC Spring Boot Auto-Configuration
+com.lumina.rpc.core.spring.LuminaRpcAutoConfiguration

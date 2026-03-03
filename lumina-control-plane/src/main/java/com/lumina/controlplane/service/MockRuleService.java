@@ -215,4 +215,18 @@ public class MockRuleService {
     public List<MockRuleEntity> findAllEnabled() {
         return ruleRepository.findByEnabledTrue();
     }
+
+    /**
+     * 统计所有规则数量
+     */
+    public long countAll() {
+        return ruleRepository.count();
+    }
+
+    /**
+     * 统计启用的规则数量
+     */
+    public long countEnabledRules() {
+        return ruleRepository.countByEnabledTrue();
+    }
 }

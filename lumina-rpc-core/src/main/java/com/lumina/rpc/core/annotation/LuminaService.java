@@ -1,5 +1,8 @@
 package com.lumina.rpc.core.annotation;
 
+import org.springframework.core.annotation.AliasFor;
+import org.springframework.stereotype.Component;
+
 import java.lang.annotation.*;
 
 /**
@@ -10,6 +13,7 @@ import java.lang.annotation.*;
 @Target(ElementType.TYPE)
 @Retention(RetentionPolicy.RUNTIME)
 @Documented
+@Component  // Spring 会自动扫描并注册为 Bean
 public @interface LuminaService {
 
     /**
@@ -32,4 +36,10 @@ public @interface LuminaService {
      * @return 权重值
      */
     int weight() default 100;
+
+    /**
+     * Bean 名称
+     */
+    @AliasFor(annotation = Component.class)
+    String value() default "";
 }

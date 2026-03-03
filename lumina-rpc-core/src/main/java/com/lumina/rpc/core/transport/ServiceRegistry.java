@@ -3,7 +3,11 @@ package com.lumina.rpc.core.transport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Collections;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 /**
  * 服务注册表
@@ -98,6 +102,27 @@ public class ServiceRegistry {
      */
     public int getServiceCount() {
         return serviceCache.size();
+    }
+
+    /**
+     * 获取所有已注册的服务
+     * key -> interfaceName#version
+     *
+     * @return 服务缓存的副本
+     */
+    public Map<String, Object> getAllServices() {
+        return Collections.unmodifiableMap(serviceCache);
+    }
+
+    /**
+     * 获取所有已注册的服务名称（去重）
+     *
+     * @return 服务名称集合
+     */
+    public Set<String> getAllServiceNames() {
+        return serviceCache.keySet().stream()
+                .map(key -> key.split("#")[0])
+                .collect(Collectors.toSet());
     }
 
     /**

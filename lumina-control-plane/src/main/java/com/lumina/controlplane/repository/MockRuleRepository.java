@@ -22,4 +22,9 @@ public interface MockRuleRepository extends JpaRepository<MockRuleEntity, Long> 
 
     @Query("SELECT DISTINCT r.serviceName FROM MockRuleEntity r WHERE r.enabled = true")
     List<String> findDistinctServiceNames();
+
+    /**
+     * 统计启用的规则数量
+     */
+    long countByEnabledTrue();
 }

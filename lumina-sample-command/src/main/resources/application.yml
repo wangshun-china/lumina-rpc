@@ -1,0 +1,39 @@
+server:
+  port: 8083
+
+spring:
+  application:
+    name: fleet-command-gateway
+  # 启用定时任务
+  task:
+    scheduling:
+      enabled: true
+
+# Lumina RPC 配置
+lumina:
+  rpc:
+    # 控制平面地址（用于服务发现）
+    control-plane-url: http://localhost:8080
+    # 服务发现刷新间隔（秒）
+    discovery-refresh-interval: 10
+    # 服务端配置 (Consumer 不需要服务端端口，但保留配置)
+    server:
+      host: 127.0.0.1
+      port: 9083
+    # 服务配置
+    service:
+      # 扫描的包路径
+      scan-packages: com.lumina.sample.command.service
+    # Mock 功能配置（测试时开启）
+    mock:
+      enabled: true
+      # 订阅 Radar 和 Engine 服务的 Mock 规则
+      subscribe-services: com.lumina.sample.radar.service.RadarService,com.lumina.sample.engine.service.EngineService
+
+# 日志配置
+logging:
+  level:
+    com.lumina.sample.command: INFO
+    com.lumina.rpc: DEBUG
+  pattern:
+    console: "%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"

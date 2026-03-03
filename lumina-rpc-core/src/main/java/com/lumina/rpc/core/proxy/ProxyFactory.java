@@ -1,7 +1,7 @@
 package com.lumina.rpc.core.proxy;
 
-import com.lumina.rpc.core.spi.Serializer;
-import com.lumina.rpc.core.transport.NettyClient;
+import com.lumina.rpc.protocol.spi.Serializer;
+import com.lumina.rpc.protocol.transport.NettyClient;
 import net.bytebuddy.ByteBuddy;
 import net.bytebuddy.implementation.MethodDelegation;
 import net.bytebuddy.matcher.ElementMatchers;
@@ -18,10 +18,10 @@ public class ProxyFactory {
     private static final Logger logger = LoggerFactory.getLogger(ProxyFactory.class);
 
     // Netty 客户端
-    private final NettyClient nettyClient;
+    private NettyClient nettyClient;
 
     // 序列化器
-    private final Serializer serializer;
+    private Serializer serializer;
 
     // 默认超时时间
     private final long defaultTimeout;
@@ -34,6 +34,30 @@ public class ProxyFactory {
 
     public ProxyFactory(NettyClient nettyClient, Serializer serializer) {
         this(nettyClient, serializer, 5000);
+    }
+
+    /**
+     * 无参构造函数 - 仅用于 Spring 代理或 SPI 场景
+     * 注意：使用此构造函数后必须通过 setter 方法设置依赖
+     */
+    public ProxyFactory() {
+        this.nettyClient = null;
+        this.serializer = null;
+        this.defaultTimeout = 5000;
+    }
+
+    /**
+     * 设置 NettyClient (用于无参构造后的依赖注入)
+     */
+    public void setNettyClient(NettyClient nettyClient) {
+        this.nettyClient = nettyClient;
+    }
+
+    /**
+     * 设置 Serializer (用于无参构造后的依赖注入)
+     */
+    public void setSerializer(Serializer serializer) {
+        this.serializer = serializer;
     }
 
     /**

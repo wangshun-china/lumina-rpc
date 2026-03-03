@@ -1,6 +1,6 @@
 package com.lumina.rpc.core.transport;
 
-import com.lumina.rpc.core.protocol.RpcMessage;
+import com.lumina.rpc.protocol.RpcMessage;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.handler.timeout.IdleState;

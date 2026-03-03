@@ -1,26 +1,38 @@
 package com.lumina.rpc.core.transport;
 
-import com.lumina.rpc.core.codec.RpcDecoder;
-import com.lumina.rpc.core.codec.RpcEncoder;
-import com.lumina.rpc.core.spi.Serializer;
+import com.lumina.rpc.protocol.codec.RpcDecoder;
+import com.lumina.rpc.protocol.codec.RpcEncoder;
+import com.lumina.rpc.protocol.spi.Serializer;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.*;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.handler.timeout.IdleStateHandler;
+import io.netty.util.concurrent.Future;
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.InetSocketAddress;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Netty RPC 服务器
+ *
+ * 防御性编程特性：
+ * 1. 优雅停机：实现 @PreDestroy，确保 Spring 关闭时正确释放资源
+ * 2. Boss/Worker 线程组优雅关闭
+ * 3. 关闭超时控制
  */
 public class NettyServer {
 
     private static final Logger logger = LoggerFactory.getLogger(NettyServer.class);
+
+    // 优雅关闭等待时间（秒）
+    private static final int GRACEFUL_SHUTDOWN_QUIET_PERIOD = 3;
+    private static final int GRACEFUL_SHUTDOWN_TIMEOUT = 10;
 
     // Boss EventLoopGroup，用于处理连接请求
     private final EventLoopGroup bossGroup;
@@ -42,6 +54,9 @@ public class NettyServer {
 
     // 运行状态
     private volatile boolean running = false;
+
+    // 关闭标志
+    private final AtomicBoolean shutdown = new AtomicBoolean(false);
 
     public NettyServer(Serializer serializer, RpcRequestHandler requestHandler) {
         this.serializer = serializer;
@@ -139,26 +154,61 @@ public class NettyServer {
 
     /**
      * 关闭服务器
+     *
+     * 防御性编程：实现优雅停机
+     * 1. 防止重复关闭
+     * 2. 先停止接收新连接
+     * 3. 等待现有请求处理完成
+     * 4. 关闭 Boss 和 Worker 线程组
      */
+    @PreDestroy
     public void shutdown() {
+        // 防止重复关闭
+        if (!shutdown.compareAndSet(false, true)) {
+            logger.info("NettyServer already shut down");
+            return;
+        }
+
         if (!running) {
             return;
         }
 
-        this.running = false;
-        logger.info("Shutting down Netty RPC server...");
+        logger.info("🛑 [Graceful Shutdown] Shutting down Netty RPC server on port {}...", port);
 
-        try {
-            if (bossGroup != null && !bossGroup.isShutdown()) {
-                bossGroup.shutdownGracefully();
+        // 1. 先标记为非运行状态，停止接受新连接
+        this.running = false;
+
+        // 2. 优雅关闭 WorkerGroup（处理 I/O 的线程组）
+        if (workerGroup != null && !workerGroup.isShutdown()) {
+            try {
+                Future<?> workerFuture = workerGroup.shutdownGracefully(
+                        GRACEFUL_SHUTDOWN_QUIET_PERIOD,
+                        GRACEFUL_SHUTDOWN_TIMEOUT,
+                        TimeUnit.SECONDS
+                );
+                workerFuture.await(15, TimeUnit.SECONDS);
+                logger.info("📡 [Graceful Shutdown] WorkerGroup terminated");
+            } catch (Exception e) {
+                logger.warn("Error during WorkerGroup shutdown", e);
             }
-            if (workerGroup != null && !workerGroup.isShutdown()) {
-                workerGroup.shutdownGracefully();
-            }
-            logger.info("Netty RPC server shutdown complete");
-        } catch (Exception e) {
-            logger.error("Error during server shutdown", e);
         }
+
+        // 3. 优雅关闭 BossGroup（接受连接的线程组）
+        if (bossGroup != null && !bossGroup.isShutdown()) {
+            try {
+                Future<?> bossFuture = bossGroup.shutdownGracefully(
+                        GRACEFUL_SHUTDOWN_QUIET_PERIOD,
+                        GRACEFUL_SHUTDOWN_TIMEOUT,
+                        TimeUnit.SECONDS
+                );
+                bossFuture.await(15, TimeUnit.SECONDS);
+                logger.info("⚡ [Graceful Shutdown] BossGroup terminated");
+            } catch (Exception e) {
+                logger.warn("Error during BossGroup shutdown", e);
+            }
+        }
+
+        logger.info("✅ [Graceful Shutdown] Netty RPC server shutdown complete on port {}", port);
     }
 
     /**

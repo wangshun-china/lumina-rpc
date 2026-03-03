@@ -1,3 +1,27 @@
-# 项目排除路径
-/lumina-control-plane/target/
-/lumina-rpc-core/target/
+# === Java / Maven ===
+# 只要文件夹叫 target，不管在哪一层目录，全部排除
+target/
+# 排除所有编译后的 .class 文件
+*.class
+# 排除 Maven 运行产生的日志
+*.log
+
+# === 前端 (Vue / Node) ===
+# 排除极其庞大的第三方依赖包
+node_modules/
+# 排除前端打包后的产物
+dist/
+# 排除本地环境变量配置文件
+.env.local
+.env.*.local
+
+# === IDE (IntelliJ IDEA / VS Code) ===
+.idea/
+*.iml
+.vscode/
+# 排除 Java 单元测试产生的临时文件
+bin/
+
+# === 系统相关 ===
+.DS_Store
+Thumbs.db

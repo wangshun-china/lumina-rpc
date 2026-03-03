@@ -20,6 +20,23 @@ public class MockRuleEntity {
     @Column(name = "match_type", length = 50)
     private String matchType = "exact";
 
+    /**
+     * 条件规则 - JSON 格式（支持多条件列表）
+     * 新格式：[{"index": 0, "value": "USS-1701"}, {"index": 1, "value": "Sector-Alpha"}]
+     * 旧格式：{"argIndex":0, "matchValue":"USS-1701"}
+     * 为空代表无条件触发
+     */
+    @Column(name = "condition_rule", columnDefinition = "TEXT")
+    private String conditionRule;
+
+    /**
+     * Mock 类型
+     * - SHORT_CIRCUIT: 直接阻断，返回 Mock 数据
+     * - TAMPER: 篡改真实数据，将 Mock 数据与真实响应合并
+     */
+    @Column(name = "mock_type", length = 50)
+    private String mockType = "SHORT_CIRCUIT";
+
     @Column(name = "match_condition", length = 1000)
     private String matchCondition;
 
@@ -100,6 +117,22 @@ public class MockRuleEntity {
 
     public void setMatchType(String matchType) {
         this.matchType = matchType;
+    }
+
+    public String getConditionRule() {
+        return conditionRule;
+    }
+
+    public void setConditionRule(String conditionRule) {
+        this.conditionRule = conditionRule;
+    }
+
+    public String getMockType() {
+        return mockType;
+    }
+
+    public void setMockType(String mockType) {
+        this.mockType = mockType;
     }
 
     public String getMatchCondition() {

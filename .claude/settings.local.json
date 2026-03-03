@@ -13,7 +13,21 @@
       "Bash(taskkill:*)",
       "Bash(jps:*)",
       "Bash(tasklist:*)",
-      "Bash(cd:*)"
+      "Bash(cd:*)",
+      "Bash(cd G:/project/lumina-rpc/lumina-dashboard && npm install vue-router@4 2>&1)",
+      "Bash(cd G:/project/lumina-rpc/lumina-dashboard && npm run build 2>&1)",
+      "Bash(cd G:/project/lumina-rpc/lumina-dashboard && npm run build -- --no-typecheck 2>&1)",
+      "Bash(cd G:/project/lumina-rpc/lumina-dashboard && npm install -D @tailwindcss/postcss 2>&1)",
+      "Bash(cd G:/project/lumina-rpc/lumina-dashboard && npm uninstall -D tailwindcss @tailwindcss/postcss && npm install -D tailwindcss@3.4.17 postcss autoprefixer 2>&1)",
+      "Bash(cd G:/project/lumina-rpc/lumina-dashboard && npx tailwindcss init -p 2>&1)",
+      "Bash(cd G:\\\\project\\\\lumina-rpc\\\\lumina-dashboard:*)",
+      "Bash(cd G:\\\\project\\\\lumina-rpc:*)",
+      "Bash(lsof:*)",
+      "Bash(netstat:*)",
+      "Bash(cmd:*)",
+      "Bash(ls -la G:/project/lumina-rpc/lumina-control-plane/src/main/java/com/lumina/controlplane/entity/ 2>/dev/null || dir G:\\\\project\\\\lumina-rpc\\\\lumina-control-plane\\\\src\\\\main\\\\java\\\\com\\\\lumina\\\\controlplane\\\\entity\\\\ 2>nul)",
+      "Bash(mvn compile:*)",
+      "Bash(jar:*)"
     ]
   }
 }

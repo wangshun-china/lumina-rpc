@@ -7,13 +7,17 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.ComponentScan;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * Control Plane 启动类
  * 负责管理 Mock Rule 并通过 SSE 广播变更通知
+ *
+ * 注意：不再依赖 lumina-rpc-core，只依赖纯净的 lumina-rpc-protocol
  */
 @SpringBootApplication
-@ComponentScan(basePackages = {"com.lumina.controlplane", "com.lumina.rpc"})
+@EnableScheduling
+@ComponentScan(basePackages = "com.lumina.controlplane")
 public class ControlPlaneApplication {
 
     private static final Logger logger = LoggerFactory.getLogger(ControlPlaneApplication.class);

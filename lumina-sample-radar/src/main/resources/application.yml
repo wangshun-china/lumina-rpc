@@ -1,0 +1,29 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: deep-space-radar
+
+# Lumina RPC 配置
+lumina:
+  rpc:
+    # 注册中心地址
+    registry:
+      address: http://localhost:8080
+    # 服务端配置
+    server:
+      host: 127.0.0.1
+      port: 9082
+    # 服务配置
+    service:
+      # 扫描的包路径
+      scan-packages: com.lumina.sample.radar.service
+
+# 日志配置
+logging:
+  level:
+    com.lumina.sample.radar: INFO
+    com.lumina.rpc: DEBUG
+  pattern:
+    console: "%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
