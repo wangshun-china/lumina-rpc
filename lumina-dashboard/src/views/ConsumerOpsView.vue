@@ -158,7 +158,7 @@
           <div class="flex items-center space-x-3">
             <span class="text-xs text-slate-500">共 {{ requestStream.length }} 条记录</span>
             <el-button size="small" @click="clearRequestStream" type="danger" plain>
-              清空屏幕
+              🗑️ 清除日志
             </el-button>
           </div>
         </div>
@@ -201,16 +201,17 @@
             <!-- 请求参数 -->
             <div class="ml-4 mb-2">
               <div class="text-xs text-slate-500 mb-1">📤 REQUEST</div>
-              <pre class="text-xs text-yellow-300 whitespace-pre-wrap">{{ formatJson(record.args) }}</pre>
+              <pre class="text-xs text-yellow-300 whitespace-pre-wrap json-highlight" v-html="formatJson(record.args)"></pre>
             </div>
 
             <!-- 响应结果 -->
             <div class="ml-4">
               <div class="text-xs text-slate-500 mb-1">📥 RESPONSE</div>
               <pre
-                class="text-xs whitespace-pre-wrap"
+                class="text-xs whitespace-pre-wrap json-highlight"
                 :class="record.success ? 'text-green-300' : 'text-red-300'"
-              >{{ formatJson(record.response) }}</pre>
+                v-html="formatJson(record.response)"
+              ></pre>
             </div>
           </div>
         </div>
@@ -293,21 +294,41 @@ const formatTypeName = (type: string): string => {
   return parts[parts.length - 1]
 }
 
-// 格式化 JSON
+// 格式化 JSON 并添加语法高亮
 const formatJson = (data: any): string => {
-  if (data === null || data === undefined) return 'null'
+  if (data === null || data === undefined) return '<span class="json-null">null</span>'
   if (typeof data === 'string') {
     try {
-      return JSON.stringify(JSON.parse(data), null, 2)
+      return syntaxHighlight(JSON.parse(data))
     } catch {
       return data
     }
   }
   try {
-    return JSON.stringify(data, null, 2)
+    return syntaxHighlight(data)
   } catch {
     return String(data)
   }
+}
+
+// JSON 语法高亮
+const syntaxHighlight = (json: any): string => {
+  const str = JSON.stringify(json, null, 2)
+  return str.replace(/("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g, (match) => {
+    let cls = 'json-number'
+    if (/^"/.test(match)) {
+      if (/:$/.test(match)) {
+        cls = 'json-key'
+      } else {
+        cls = 'json-string'
+      }
+    } else if (/true|false/.test(match)) {
+      cls = 'json-boolean'
+    } else if (/null/.test(match)) {
+      cls = 'json-null'
+    }
+    return `<span class="${cls}">${match}</span>`
+  })
 }
 
 // 获取服务列表
@@ -331,8 +352,12 @@ const fetchServices = async () => {
     for (const service of serviceList) {
       try {
         const metaResponse = await axios.get(`/api/v1/registry/metadata/${service.name}`)
-        if (metaResponse.data?.methods) {
-          service.methodCount = metaResponse.data.methods.length
+        // 修复：后端返回 { services: [{ interfaceName, methods }] }
+        const metaData = metaResponse.data
+        if (metaData?.services && metaData.services.length > 0) {
+          service.methodCount = metaData.services[0].methods?.length || 0
+        } else {
+          service.methodCount = 0
         }
       } catch {
         service.methodCount = 0
@@ -355,10 +380,11 @@ const onTestServiceChange = async () => {
 
   try {
     const response = await axios.get(`/api/v1/registry/metadata/${testForm.value.serviceName}`)
+    // 修复：后端返回 { services: [{ interfaceName, methods }] }
     const metadata = response.data
-
-    if (metadata && metadata.methods) {
-      testMethods.value = metadata.methods.map((m: any) => ({
+    if (metadata && metadata.services && metadata.services.length > 0) {
+      const methods = metadata.services[0].methods || []
+      testMethods.value = methods.map((m: any) => ({
         name: m.name,
         parameterTypes: m.parameterTypes || [],
         parameters: m.parameters || [],
@@ -430,6 +456,25 @@ const testParams = computed(() => {
   return method?.parameters || []
 })
 
+// 辅助函数：把 args 数组转换成对象展示（利用 method 元数据）
+const buildDisplayArgs = (args: any[]): any => {
+  const params = testParams.value
+  const displayObj: Record<string, any> = {}
+
+  args.forEach((arg, index) => {
+    const param = params[index]
+    if (param?.name) {
+      // 使用参数名作为 key
+      displayObj[param.name] = arg
+    } else {
+      // 没有参数名时使用索引
+      displayObj[`arg${index}`] = arg
+    }
+  })
+
+  return displayObj
+}
+
 // 发送测试请求
 const sendTestRequest = async () => {
   if (!testForm.value.serviceName || !testForm.value.methodName) {
@@ -441,47 +486,53 @@ const sendTestRequest = async () => {
   const startTime = Date.now()
 
   try {
-    // 构建参数 Map：{ "sector": "Alpha-7", "shipId": "USS-1701" }
-    const params: Record<string, any> = {}
+    // 构建参数 Map：严格按照 parameters 数组的 index 顺序
+    const args: any[] = []
 
     testForm.value.args.forEach((arg, index) => {
       const param = testParams.value[index]
-      if (!param) return
+      if (!param) {
+        args.push(null)
+        return
+      }
 
-      const paramName = param.name || `arg${index}`
       if (!arg && arg !== '') {
-        params[paramName] = null
+        args.push(null)
         return
       }
 
       // 类型转换
       try {
         // 尝试解析 JSON
-        params[paramName] = JSON.parse(arg)
+        args.push(JSON.parse(arg))
       } catch {
         // 根据类型转换
-        if (param.type.includes('Integer') || param.type.includes('int')) {
+        const paramType = param.type?.toLowerCase() || ''
+        if (paramType.includes('integer') || paramType.includes('int')) {
           const parsed = parseInt(arg)
-          params[paramName] = isNaN(parsed) ? null : parsed
-        } else if (param.type.includes('Long') || param.type.includes('long')) {
+          args.push(isNaN(parsed) ? null : parsed)
+        } else if (paramType.includes('long')) {
           const parsed = parseInt(arg)
-          params[paramName] = isNaN(parsed) ? null : parsed
-        } else if (param.type.includes('Double') || param.type.includes('double')) {
+          args.push(isNaN(parsed) ? null : parsed)
+        } else if (paramType.includes('double') || paramType.includes('float')) {
           const parsed = parseFloat(arg)
-          params[paramName] = isNaN(parsed) ? null : parsed
-        } else if (param.type.includes('Boolean') || param.type.includes('boolean')) {
-          params[paramName] = arg.toLowerCase() === 'true'
+          args.push(isNaN(parsed) ? null : parsed)
+        } else if (paramType.includes('boolean')) {
+          args.push(arg.toLowerCase() === 'true')
+        } else if (paramType.includes('string')) {
+          args.push(arg)
         } else {
-          params[paramName] = arg
+          // 尝试作为通用对象
+          args.push(arg)
         }
       }
     })
 
-    // 使用新的通用代理接口，发送 Map 格式
+    // 使用数组格式发送请求，严格按照 index 顺序
     const response = await axios.post('/api/command/proxy-invoke', {
       serviceName: testForm.value.serviceName,
       methodName: testForm.value.methodName,
-      params: params
+      args: args
     })
 
     const duration = Date.now() - startTime
@@ -489,11 +540,15 @@ const sendTestRequest = async () => {
 
     lastRequestTime.value = new Date().toLocaleTimeString()
 
+    // 优化日志展示：把 args 数组转换成对象显示（发给后端仍是数组）
+    const displayArgs = buildDisplayArgs(args)
+
     // 添加到终端（使用 unshift 添加到列表开头）
+    // 关键：使用深拷贝打断响应式引用，防止旧日志被污染
     const record: RequestRecord = {
       serviceName: testForm.value.serviceName,
       methodName: testForm.value.methodName,
-      args: params,
+      args: displayArgs,
       response: result.success ? result.data : result.error,
       success: result.success !== false,
       duration,
@@ -529,11 +584,15 @@ const sendTestRequest = async () => {
 
     const errorData = error.response?.data || error.message
 
+    // 优化日志展示：把 args 数组转换成对象显示
+    const displayArgs = buildDisplayArgs(testForm.value.args)
+
     // 添加到终端
+    // 关键：使用深拷贝打断响应式引用，防止旧日志被污染
     const record: RequestRecord = {
       serviceName: testForm.value.serviceName,
       methodName: testForm.value.methodName,
-      args: testForm.value.args,
+      args: displayArgs,
       response: errorData,
       success: false,
       duration,
@@ -628,5 +687,35 @@ onUnmounted(() => {
 
 .terminal-glow {
   text-shadow: 0 0 5px currentColor;
+}
+
+/* JSON 语法高亮样式 */
+.json-highlight {
+  font-family: 'Fira Code', 'Consolas', monospace;
+  line-height: 1.5;
+  padding: 4px 8px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+  border-left: 2px solid;
+}
+
+.json-highlight .json-key {
+  color: #7dd3fc;
+}
+
+.json-highlight .json-string {
+  color: #86efac;
+}
+
+.json-highlight .json-number {
+  color: #fcd34d;
+}
+
+.json-highlight .json-boolean {
+  color: #f472b6;
+}
+
+.json-highlight .json-null {
+  color: #a78bfa;
 }
 </style>

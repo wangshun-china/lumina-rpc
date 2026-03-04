@@ -112,16 +112,61 @@ public class SseBroadcastService {
     }
 
     /**
-     * 广播 Mock Rule 变更事件给指定服务的所有 Consumer
+     * 广播 Mock Rule 变更事件 - 强制广播给所有订阅者！
+     * 不管改了什么服务，直接向所有存活中的 Emitter 广播！
      *
      * @param serviceName 服务名称
      * @param ruleId      变更的规则 ID
      * @param action      操作类型: CREATE, UPDATE, DELETE
      */
     public void broadcastRuleChange(String serviceName, Long ruleId, String action) {
-        Set<SseEmitter> emitters = emittersByService.get(serviceName);
+        String eventData;
+        try {
+            eventData = objectMapper.writeValueAsString(new RuleChangeEvent(ruleId, action, serviceName));
+        } catch (Exception e) {
+            logger.error("❌ Failed to serialize rule change event", e);
+            return;
+        }
+
+        // 强制广播给所有 emitter！不遗漏任何一个！
+        int successCount = 0;
+        int failCount = 0;
+
+        for (Map.Entry<String, Set<SseEmitter>> entry : emittersByService.entrySet()) {
+            String emitterKey = entry.getKey();
+            Set<SseEmitter> emitters = entry.getValue();
+
+            if (emitters == null || emitters.isEmpty()) {
+                continue;
+            }
+
+            logger.info("📡 [SSE-BROADCAST] 强制广播给 {} ({} 个连接), service={}, action={}",
+                    emitterKey, emitters.size(), serviceName, action);
+
+            for (SseEmitter emitter : emitters) {
+                try {
+                    emitter.send(SseEmitter.event()
+                            .name("rule-change")
+                            .id(String.valueOf(ruleId))
+                            .data(eventData));
+                    successCount++;
+                } catch (IOException e) {
+                    logger.error("❌ 广播失败，移除 emitter", e);
+                    removeEmitter(emitter);
+                    failCount++;
+                }
+            }
+        }
+
+        logger.info("📡 [SSE-BROADCAST] 广播完成: 成功={}, 失败={}", successCount, failCount);
+    }
+
+    /**
+     * 广播给指定 emitter 组的订阅者（保留兼容）
+     */
+    private void broadcastToService(String emitterKey, String serviceName, Long ruleId, String action) {
+        Set<SseEmitter> emitters = emittersByService.get(emitterKey);
         if (emitters == null || emitters.isEmpty()) {
-            logger.debug("No active emitters for service: {}, skipping broadcast", serviceName);
             return;
         }
 
@@ -133,8 +178,8 @@ public class SseBroadcastService {
             return;
         }
 
-        logger.info("Broadcasting rule change to {} emitters for service: {}",
-                emitters.size(), serviceName);
+        logger.info("📡 Broadcasting rule change to {} emitters (key={}), service={}, action={}",
+                emitters.size(), emitterKey, serviceName, action);
 
         for (SseEmitter emitter : emitters) {
             try {

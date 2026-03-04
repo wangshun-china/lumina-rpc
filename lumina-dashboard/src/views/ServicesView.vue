@@ -336,7 +336,16 @@ const viewMetadata = async (serviceName: string) => {
 
   try {
     const response = await axios.get(`/api/v1/registry/metadata/${serviceName}`)
-    currentMetadata.value = response.data
+    // 修复：后端返回 { services: [{ interfaceName, methods }] }
+    const data = response.data
+    if (data && data.services && data.services.length > 0) {
+      currentMetadata.value = {
+        interfaceName: data.services[0].interfaceName || serviceName,
+        methods: data.services[0].methods || []
+      }
+    } else {
+      currentMetadata.value = null
+    }
   } catch (err) {
     console.error('获取元数据失败:', err)
     ElMessage.warning('该服务暂无元数据')
@@ -349,7 +358,7 @@ const viewMetadata = async (serviceName: string) => {
 const quickTest = (serviceName: string, methodName: string) => {
   metadataDrawerVisible.value = false
   router.push({
-    path: '/rpc-tester',
+    path: '/consumer-ops',
     query: { service: serviceName, method: methodName }
   })
 }

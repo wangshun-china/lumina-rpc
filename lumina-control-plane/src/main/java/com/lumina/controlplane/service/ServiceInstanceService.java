@@ -1,5 +1,7 @@
 package com.lumina.controlplane.service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lumina.controlplane.entity.ServiceInstanceEntity;
 import com.lumina.controlplane.repository.ServiceInstanceRepository;
 import org.slf4j.Logger;
@@ -9,8 +11,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
 
 @Service
 public class ServiceInstanceService {
@@ -18,9 +19,11 @@ public class ServiceInstanceService {
     private static final Logger logger = LoggerFactory.getLogger(ServiceInstanceService.class);
 
     private final ServiceInstanceRepository serviceInstanceRepository;
+    private final ObjectMapper objectMapper;
 
-    public ServiceInstanceService(ServiceInstanceRepository serviceInstanceRepository) {
+    public ServiceInstanceService(ServiceInstanceRepository serviceInstanceRepository, ObjectMapper objectMapper) {
         this.serviceInstanceRepository = serviceInstanceRepository;
+        this.objectMapper = objectMapper;
     }
 
     public List<ServiceInstanceEntity> findAll() {
@@ -53,6 +56,56 @@ public class ServiceInstanceService {
 
     public long countHealthyInstances() {
         return serviceInstanceRepository.countHealthyInstances(LocalDateTime.now());
+    }
+
+    /**
+     * 获取所有服务的元数据（去重）
+     * 用于前端动态渲染下拉框
+     */
+    public Map<String, Map<String, Object>> getAllServiceMetadata() {
+        List<ServiceInstanceEntity> instances = findHealthyInstances();
+        Map<String, Map<String, Object>> result = new LinkedHashMap<>();
+
+        for (ServiceInstanceEntity instance : instances) {
+            String serviceName = instance.getServiceName();
+            if (!result.containsKey(serviceName) && instance.getServiceMetadata() != null) {
+                try {
+                    Map<String, Object> metadata = objectMapper.readValue(
+                        instance.getServiceMetadata(),
+                        new TypeReference<Map<String, Object>>() {}
+                    );
+                    result.put(serviceName, metadata);
+                    logger.debug("Loaded metadata for service: {}", serviceName);
+                } catch (Exception e) {
+                    logger.error("Failed to parse metadata for service: {}", serviceName, e);
+                }
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * 根据服务名获取元数据
+     */
+    public Map<String, Object> getServiceMetadata(String serviceName) {
+        Optional<ServiceInstanceEntity> instance = serviceInstanceRepository
+                .findByServiceName(serviceName)
+                .stream()
+                .filter(i -> "UP".equals(i.getStatus()))
+                .findFirst();
+
+        if (instance.isPresent() && instance.get().getServiceMetadata() != null) {
+            try {
+                return objectMapper.readValue(
+                    instance.get().getServiceMetadata(),
+                    new TypeReference<Map<String, Object>>() {}
+                );
+            } catch (Exception e) {
+                logger.error("Failed to parse metadata for service: {}", serviceName, e);
+            }
+        }
+        return new HashMap<>();
     }
 
     @Transactional

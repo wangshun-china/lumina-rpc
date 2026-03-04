@@ -9,6 +9,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -105,5 +106,29 @@ public class ServiceInstanceController {
         logger.info("Cleaning up expired service instances");
         serviceInstanceService.cleanupExpiredInstances();
         return ResponseEntity.ok().build();
+    }
+
+    /**
+     * 获取所有服务的元数据（去重）
+     * 前端动态渲染下拉框的核心接口
+     */
+    @GetMapping("/metadata")
+    public ResponseEntity<Map<String, Map<String, Object>>> getAllMetadata() {
+        logger.debug("Getting all service metadata");
+        Map<String, Map<String, Object>> metadata = serviceInstanceService.getAllServiceMetadata();
+        logger.info("Found metadata for {} services", metadata.size());
+        return ResponseEntity.ok(metadata);
+    }
+
+    /**
+     * 根据服务名获取元数据
+     * 用于前端选择服务后获取方法列表
+     */
+    @GetMapping("/metadata/{serviceName}")
+    public ResponseEntity<Map<String, Object>> getMetadataByService(
+            @PathVariable("serviceName") String serviceName) {
+        logger.debug("Getting metadata for service: {}", serviceName);
+        Map<String, Object> metadata = serviceInstanceService.getServiceMetadata(serviceName);
+        return ResponseEntity.ok(metadata);
     }
 }

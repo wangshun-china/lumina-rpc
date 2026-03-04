@@ -16,13 +16,6 @@
     <description>Control Plane for Lumina RPC - manages mock rules and broadcasts changes</description>
 
     <dependencies>
-        <!-- Lumina RPC Protocol - 纯净的底层协议包，无 Spring 污染 -->
-        <dependency>
-            <groupId>com.lumina</groupId>
-            <artifactId>lumina-rpc-protocol</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-
         <!-- Spring Boot Starter Web -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

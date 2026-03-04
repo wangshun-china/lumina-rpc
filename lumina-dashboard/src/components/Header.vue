@@ -51,14 +51,6 @@
             <span>📊</span>
             <span>消费者操作台</span>
           </RouterLink>
-          <RouterLink
-            to="/rpc-tester"
-            class="px-4 py-2 rounded-lg text-sm font-medium transition-colors hover:bg-slate-800 flex items-center space-x-1"
-            :class="route.path === '/rpc-tester' ? 'bg-slate-800 text-cyan-400' : 'text-slate-400'"
-          >
-            <span>⚡</span>
-            <span>RPC 测试台</span>
-          </RouterLink>
         </nav>
 
         <div class="flex items-center space-x-4">

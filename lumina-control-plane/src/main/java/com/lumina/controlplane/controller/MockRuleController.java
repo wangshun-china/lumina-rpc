@@ -87,6 +87,8 @@ public class MockRuleController {
             @PathVariable("id") Long id,
             @RequestBody MockRuleEntity rule) {
         logger.info("Updating mock rule with id: {}", id);
+        // 明确将路径参数 id 赋值给接收到的 Entity，确保 JPA 正确识别为更新操作
+        rule.setId(id);
         MockRuleEntity updated = mockRuleService.updateRule(id, rule);
         return ResponseEntity.ok(updated);
     }

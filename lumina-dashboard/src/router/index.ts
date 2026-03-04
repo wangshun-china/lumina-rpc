@@ -6,7 +6,6 @@ const Dashboard = () => import('../views/Dashboard.vue')
 const TopologyView = () => import('../views/TopologyView.vue')
 const ServicesView = () => import('../views/ServicesView.vue')
 const MockRulesView = () => import('../views/MockRulesView.vue')
-const RpcTesterView = () => import('../views/RpcTesterView.vue')
 const ConsumerOpsView = () => import('../views/ConsumerOpsView.vue')
 
 const routes: RouteRecordRaw[] = [
@@ -40,14 +39,6 @@ const routes: RouteRecordRaw[] = [
     component: MockRulesView,
     meta: {
       title: 'Lumina-RPC - Mock 规则',
-    },
-  },
-  {
-    path: '/rpc-tester',
-    name: 'rpc-tester',
-    component: RpcTesterView,
-    meta: {
-      title: 'Lumina-RPC - 在线测试台',
     },
   },
   {

@@ -39,9 +39,6 @@ public class MockRuleManager {
     // Mock 规则缓存: serviceName -> Map<methodName, MockRule>
     private final ConcurrentHashMap<String, ConcurrentHashMap<String, MockRule>> ruleCache = new ConcurrentHashMap<>();
 
-    // 占位符正则：{{base}}, {{base.field}}, {{base[0]}}
-    private static final Pattern PLACEHOLDER_PATTERN = Pattern.compile("\\{\\{base(\\.\\w+|\\[\\d+\\])*}}");
-
     private MockRuleManager() {
         // 单例模式
     }
@@ -619,6 +616,13 @@ public class MockRuleManager {
             String fieldName = entry.getKey();
             JsonNode overlayValue = entry.getValue();
 
+            // 关键修复：忽略空值覆盖
+            // 只有当 Mock 值不为 null、不为空字符串、且不是全空对象时才覆盖
+            if (isEmptyValue(overlayValue)) {
+                // 跳过空值，保留真实值
+                return;
+            }
+
             if (result.has(fieldName) && result.get(fieldName).isObject() && overlayValue.isObject()) {
                 // 递归合并嵌套对象
                 result.set(fieldName, mergeJsonWithPlaceholders(result.get(fieldName), overlayValue));
@@ -633,9 +637,39 @@ public class MockRuleManager {
     }
 
     /**
+     * 判断 JSON Node 是否为空值（null、空字符串、空对象）
+     * 空值不应该覆盖真实值
+     */
+    private boolean isEmptyValue(JsonNode node) {
+        if (node == null || node.isNull()) {
+            return true;
+        }
+        // 空字符串
+        if (node.isTextual() && node.asText().isEmpty()) {
+            return true;
+        }
+        // 空数组
+        if (node.isArray() && node.isEmpty()) {
+            return true;
+        }
+        // 空对象（没有字段）
+        if (node.isObject() && node.isEmpty()) {
+            return true;
+        }
+        return false;
+    }
+
+    /**
      * 处理占位符
      *
-     * 将 {{base}} 替换为原始值
+     * 支持：
+     * - {{base}}: 原始值（所有类型）
+     * - {{base}}+100: 数字加法（仅限数字类型）
+     * - {{base}}-50: 数字减法（仅限数字类型）
+     * - {{base}}*2: 数字乘法（仅限数字类型）
+     * - {{base}}/10: 数字除法（仅限数字类型）
+     *
+     * 关键：严格区分字符串和数字类型，互不干扰！
      */
     private JsonNode processPlaceholders(JsonNode node, JsonNode baseValue) {
         if (node == null) {
@@ -645,8 +679,58 @@ public class MockRuleManager {
         // 处理字符串节点中的占位符
         if (node.isTextual()) {
             String text = node.asText();
-            if (text.contains("{{base")) {
-                String resolved = resolvePlaceholders(text, baseValue);
+
+            if (text.contains("{{base}}")) {
+                // ================== 第一步：严格判断原始数据类型 ==================
+                boolean isNumericType = false;
+                boolean isIntegerType = false;
+                boolean isDoubleType = false;
+                double numericValue = 0;
+                String stringValue = "";
+
+                if (baseValue != null && !baseValue.isNull()) {
+                    if (baseValue.isNumber()) {
+                        // 原始类型是数字：int, long, double, float
+                        isNumericType = true;
+                        numericValue = baseValue.asDouble();
+                        isIntegerType = baseValue.isInt() || baseValue.isLong();
+                        isDoubleType = baseValue.isDouble() || baseValue.isFloat();
+                        stringValue = String.valueOf(numericValue);
+                    } else if (baseValue.isTextual()) {
+                        // 原始类型是字符串
+                        stringValue = baseValue.asText();
+                        // 尝试解析为数字
+                        try {
+                            numericValue = Double.parseDouble(stringValue);
+                            isNumericType = true;
+                            isIntegerType = !stringValue.contains(".");
+                            isDoubleType = stringValue.contains(".");
+                        } catch (NumberFormatException e) {
+                            // 解析失败，保持为字符串
+                            isNumericType = false;
+                        }
+                    } else if (baseValue.isBoolean()) {
+                        stringValue = String.valueOf(baseValue.asBoolean());
+                    } else {
+                        stringValue = baseValue.toString();
+                    }
+                }
+
+                // ================== 第二步：严格分支处理 ==================
+
+                // 分支 A：数字类型 + 严格的数学运算正则
+                if (isNumericType && text.matches("^\\{\\{base\\}\\}\\s*[+\\-*/]\\s*\\d+(\\.\\d+)?$")) {
+                    try {
+                        return processMathOperation(text, numericValue, isIntegerType, isDoubleType);
+                    } catch (Exception e) {
+                        logger.error("❌ 数学运算失败: template={}, realValue={}, error={}", text, numericValue, e.getMessage());
+                        // 运算失败，返回原始值
+                        return baseValue;
+                    }
+                }
+
+                // 分支 B：所有其他情况（包括字符串类型）- 简单字符串替换
+                String resolved = text.replace("{{base}}", stringValue);
                 return TextNode.valueOf(resolved);
             }
             return node;
@@ -656,7 +740,10 @@ public class MockRuleManager {
         if (node.isObject()) {
             ObjectNode result = (ObjectNode) node.deepCopy();
             result.fields().forEachRemaining(entry -> {
-                JsonNode processed = processPlaceholders(entry.getValue(), baseValue);
+                // 传递当前字段对应的真实值，用于子字段的 {{base}} 替换
+                JsonNode childBaseValue = baseValue != null && baseValue.isObject()
+                    ? baseValue.get(entry.getKey()) : baseValue;
+                JsonNode processed = processPlaceholders(entry.getValue(), childBaseValue);
                 result.set(entry.getKey(), processed);
             });
             return result;
@@ -666,95 +753,65 @@ public class MockRuleManager {
     }
 
     /**
-     * 解析占位符字符串
-     *
-     * 支持的格式：
-     * - {{base}}: 整个原始值
-     * - {{base.field}}: 原始对象的字段
-     * - {{base[0]}}: 原始数组的元素
+     * 处理数学运算 - 仅处理纯数字
      */
-    private String resolvePlaceholders(String template, JsonNode baseValue) {
-        if (template == null || !template.contains("{{")) {
-            return template;
+    private JsonNode processMathOperation(String template, double realValue, boolean isIntegerType, boolean isDoubleType) {
+        logger.info("🔢 [Math] 收到数学运算请求: template={}, realValue={}, isInteger={}, isDouble={}",
+                template, realValue, isIntegerType, isDoubleType);
+
+        // 极度严格的正则：{{base}}+数字
+        java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("^\\{\\{base\\}\\}\\s*([+\\-*/])\\s*(\\d+(\\.\\d+)?)$");
+        java.util.regex.Matcher matcher = pattern.matcher(template);
+
+        if (!matcher.find()) {
+            logger.warn("⚠️ [Math] 正则不匹配，降级为字符串替换: {}", template);
+            return TextNode.valueOf(template.replace("{{base}}", String.valueOf(realValue)));
         }
 
-        StringBuffer result = new StringBuffer();
-        Matcher matcher = PLACEHOLDER_PATTERN.matcher(template);
-
-        while (matcher.find()) {
-            String placeholder = matcher.group();
-            String resolved = resolvePlaceholder(placeholder, baseValue);
-            matcher.appendReplacement(result, resolved);
-        }
-        matcher.appendTail(result);
-
-        return result.toString();
-    }
-
-    /**
-     * 解析单个占位符
-     */
-    private String resolvePlaceholder(String placeholder, JsonNode baseValue) {
-        if (baseValue == null || baseValue.isNull()) {
-            return "";
+        String operator = matcher.group(1);
+        String operandStr = matcher.group(2);
+        double operand;
+        try {
+            operand = Double.parseDouble(operandStr);
+        } catch (NumberFormatException e) {
+            logger.error("❌ [Math] 操作数解析失败: {}", operandStr);
+            return TextNode.valueOf(template.replace("{{base}}", String.valueOf(realValue)));
         }
 
-        // 移除 {{ 和 }}
-        String path = placeholder.substring(2, placeholder.length() - 2);
+        logger.info("🔢 [Math] 解析成功: operator={}, operand={}", operator, operand);
 
-        // {{base}} - 整个值
-        if ("base".equals(path)) {
-            if (baseValue.isTextual()) {
-                return baseValue.asText();
-            }
-            return baseValue.toString();
-        }
-
-        // {{base.field}} 或 {{base[0]}} - 路径访问
-        if (path.startsWith("base.")) {
-            path = path.substring(5); // 移除 "base."
-        }
-
-        JsonNode current = baseValue;
-        String[] parts = path.split("\\.|\\[|\\]");
-
-        for (String part : parts) {
-            if (part.isEmpty()) continue;
-
-            if (current == null || current.isNull()) {
-                return "";
-            }
-
-            try {
-                if (part.matches("\\d+")) {
-                    // 数组索引
-                    int index = Integer.parseInt(part);
-                    if (current.isArray() && index < current.size()) {
-                        current = current.get(index);
-                    } else {
-                        return "";
-                    }
+        // 执行计算
+        double result = realValue;
+        switch (operator) {
+            case "+":
+                result = realValue + operand;
+                break;
+            case "-":
+                result = realValue - operand;
+                break;
+            case "*":
+                result = realValue * operand;
+                break;
+            case "/":
+                if (operand != 0) {
+                    result = realValue / operand;
                 } else {
-                    // 对象字段
-                    if (current.has(part)) {
-                        current = current.get(part);
-                    } else {
-                        return "";
-                    }
+                    logger.error("❌ [Math] 除数不能为0");
+                    return TextNode.valueOf(template.replace("{{base}}", String.valueOf(realValue)));
                 }
-            } catch (Exception e) {
-                return "";
-            }
+                break;
+            default:
+                logger.warn("⚠️ [Math] 未知操作符: {}", operator);
         }
 
-        if (current == null || current.isNull()) {
-            return "";
-        }
+        logger.info("🔢 [Math] 计算结果: {} {} {} = {}", realValue, operator, operand, result);
 
-        if (current.isTextual()) {
-            return current.asText();
+        // 根据原始类型返回正确类型的 JsonNode
+        if (isDoubleType || (!isIntegerType && result != Math.floor(result))) {
+            return new com.fasterxml.jackson.databind.node.DoubleNode(result);
+        } else {
+            return new com.fasterxml.jackson.databind.node.LongNode((long) Math.round(result));
         }
-        return current.toString();
     }
 
     /**

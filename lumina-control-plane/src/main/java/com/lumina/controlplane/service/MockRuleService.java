@@ -68,68 +68,55 @@ public class MockRuleService {
     }
 
     /**
-     * 更新规则
+     * 更新规则 - 暴力覆盖法
+     * 解决 JPA 游离态导致的更新不生效问题
      */
     @Transactional
-    public MockRuleEntity updateRule(Long id, MockRuleEntity ruleUpdate) {
-        logger.info("Updating mock rule with id: {}", id);
+    public MockRuleEntity updateRule(Long id, MockRuleEntity updatedRule) {
+        logger.info("Force updating mock rule with id: {}", id);
 
         if (id == null) {
             throw new IllegalArgumentException("Rule id cannot be null");
         }
 
+        // 第一步：先查询出数据库中已存在的托管实体
         MockRuleEntity existingRule = ruleRepository.findById(id)
                 .orElseThrow(() -> new RuntimeException("Rule not found with id: " + id));
 
         String oldServiceName = existingRule.getServiceName();
+        Long ruleId = existingRule.getId();
 
-        // 更新字段
-        if (ruleUpdate.getServiceName() != null) {
-            existingRule.setServiceName(ruleUpdate.getServiceName());
-        }
-        if (ruleUpdate.getMethodName() != null) {
-            existingRule.setMethodName(ruleUpdate.getMethodName());
-        }
-        if (ruleUpdate.getMatchType() != null) {
-            existingRule.setMatchType(ruleUpdate.getMatchType());
-        }
-        if (ruleUpdate.getMatchCondition() != null) {
-            existingRule.setMatchCondition(ruleUpdate.getMatchCondition());
-        }
-        if (ruleUpdate.getResponseType() != null) {
-            existingRule.setResponseType(ruleUpdate.getResponseType());
-        }
-        if (ruleUpdate.getResponseBody() != null) {
-            existingRule.setResponseBody(ruleUpdate.getResponseBody());
-        }
-        if (ruleUpdate.getResponseDelayMs() != null) {
-            existingRule.setResponseDelayMs(ruleUpdate.getResponseDelayMs());
-        }
-        if (ruleUpdate.getHttpStatus() != null) {
-            existingRule.setHttpStatus(ruleUpdate.getHttpStatus());
-        }
-        if (ruleUpdate.getEnabled() != null) {
-            existingRule.setEnabled(ruleUpdate.getEnabled());
-        }
-        if (ruleUpdate.getPriority() != null) {
-            existingRule.setPriority(ruleUpdate.getPriority());
-        }
-        if (ruleUpdate.getDescription() != null) {
-            existingRule.setDescription(ruleUpdate.getDescription());
-        }
-        if (ruleUpdate.getTags() != null) {
-            existingRule.setTags(ruleUpdate.getTags());
+        // 第二步：暴力覆盖所有字段（不管是否为 null，直接设置）
+        existingRule.setServiceName(updatedRule.getServiceName());
+        existingRule.setMethodName(updatedRule.getMethodName());
+        existingRule.setMatchType(updatedRule.getMatchType());
+        existingRule.setConditionRule(updatedRule.getConditionRule());
+        existingRule.setMockType(updatedRule.getMockType());
+        existingRule.setMatchCondition(updatedRule.getMatchCondition());
+        existingRule.setResponseType(updatedRule.getResponseType());
+        existingRule.setResponseBody(updatedRule.getResponseBody());
+        existingRule.setResponseDelayMs(updatedRule.getResponseDelayMs());
+        existingRule.setHttpStatus(updatedRule.getHttpStatus());
+        existingRule.setEnabled(updatedRule.getEnabled());
+        existingRule.setPriority(updatedRule.getPriority());
+        existingRule.setDescription(updatedRule.getDescription());
+        existingRule.setTags(updatedRule.getTags());
+
+        // 第三步：强制保存（merge）
+        MockRuleEntity savedRule = ruleRepository.saveAndFlush(existingRule);
+        logger.info("Force updated mock rule with id: {}, service: {}", savedRule.getId(), savedRule.getServiceName());
+
+        // 第四步：触发 SSE 广播
+        try {
+            if (!oldServiceName.equals(savedRule.getServiceName())) {
+                sseBroadcastService.broadcastRuleChange(oldServiceName, savedRule.getId(), "UPDATE");
+            }
+            sseBroadcastService.broadcastRuleChange(savedRule.getServiceName(), savedRule.getId(), "UPDATE");
+            logger.info("SSE broadcast sent for rule id: {}", savedRule.getId());
+        } catch (Exception e) {
+            logger.error("Failed to broadcast rule change", e);
         }
 
-        MockRuleEntity savedRule = ruleRepository.save(existingRule);
-
-        // 如果服务名称改变，需要同时通知旧服务和新服务
-        if (!oldServiceName.equals(savedRule.getServiceName())) {
-            sseBroadcastService.broadcastRuleChange(oldServiceName, savedRule.getId(), "UPDATE");
-        }
-        sseBroadcastService.broadcastRuleChange(savedRule.getServiceName(), savedRule.getId(), "UPDATE");
-
-        logger.info("Updated mock rule with id: {}", savedRule.getId());
         return savedRule;
     }
 

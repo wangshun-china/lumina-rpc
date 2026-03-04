@@ -187,17 +187,17 @@
               <el-select
                 v-model="condition.paramIndex"
                 placeholder="参数"
-                class="w-36"
+                class="w-44"
                 @change="onConditionParamChange(condition)"
               >
                 <el-option
                   v-for="(param, pIdx) in currentMethodParams"
                   :key="pIdx"
-                  :label="`${pIdx} (${formatParamName(param)})`"
+                  :label="`${pIdx}: ${formatParamName(param)}`"
                   :value="pIdx"
                 >
-                  <span>{{ pIdx }}</span>
-                  <span class="text-cyan-400 ml-1">{{ formatParamName(param) }}</span>
+                  <span class="text-cyan-400">{{ pIdx }}:</span>
+                  <span class="ml-1">{{ formatParamName(param) }}</span>
                 </el-option>
               </el-select>
 
@@ -390,16 +390,24 @@ const returnTypeFields = computed(() => {
   return flattenFields(method.returnType.fields)
 })
 
-// 扁平化字段结构
+// 扁平化字段结构（支持嵌套对象）
 const flattenFields = (fields: any, prefix = ''): ReturnField[] => {
   const result: ReturnField[] = []
+  if (!fields || typeof fields !== 'object') {
+    return result
+  }
+
   for (const [name, info] of Object.entries(fields)) {
     const fieldInfo = info as any
     const fullName = prefix ? `${prefix}.${name}` : name
-    result.push({ name: fullName, type: fieldInfo.type })
 
-    if (fieldInfo.fields && Object.keys(fieldInfo.fields).length > 0) {
-      // 不深度展开，保持简单
+    // 如果是简单字段，直接添加
+    if (!fieldInfo.fields || Object.keys(fieldInfo.fields).length === 0) {
+      result.push({ name: fullName, type: fieldInfo.type })
+    } else {
+      // 嵌套字段，递归处理
+      const nestedFields = flattenFields(fieldInfo.fields, fullName)
+      result.push(...nestedFields)
     }
   }
   return result
@@ -458,6 +466,10 @@ const formatConditionRule = (rule: string): string => {
 // 格式化参数名称
 const formatParamName = (param: any): string => {
   if (!param) return ''
+  // 支持嵌套结构：{ name: 'shipId', type: 'String' } 或 { name: 'sector', type: 'String' }
+  if (param.name && param.type) {
+    return `${param.name} (${formatTypeName(param.type)})`
+  }
   if (param.name) return param.name
   if (param.type) {
     // 简化类型名
@@ -526,10 +538,12 @@ const onServiceChange = async () => {
 
   try {
     const response = await axios.get(`/api/v1/registry/metadata/${form.value.serviceName}`)
+    // 修复：后端返回 { services: [{ interfaceName, methods }] }
     const metadata = response.data
 
-    if (metadata && metadata.methods) {
-      availableMethods.value = metadata.methods.map((m: any) => ({
+    if (metadata && metadata.services && metadata.services.length > 0) {
+      const methods = metadata.services[0].methods || []
+      availableMethods.value = methods.map((m: any) => ({
         name: m.name,
         parameterTypes: m.parameterTypes || [],
         returnType: m.returnType || { type: 'void' },
@@ -554,9 +568,18 @@ const onServiceChange = async () => {
 const onMethodChange = () => {
   // 初始化响应字段
   form.value.responseFields = {}
-  for (const field of returnTypeFields.value) {
-    form.value.responseFields[field.name] = ''
+
+  // 提取返回类型字段
+  const method = availableMethods.value.find(m => m.name === form.value.methodName)
+  if (method?.returnType?.fields) {
+    // 使用 returnType.fields 动态生成表单字段
+    const fields = flattenFields(method.returnType.fields)
+    for (const field of fields) {
+      form.value.responseFields[field.name] = ''
+    }
   }
+
+  // 重置条件
   form.value.conditions = []
 }
 
@@ -749,7 +772,10 @@ const saveRule = async () => {
     }
 
     if (isEditing.value && editingId.value) {
-      await axios.put(`/api/v1/rules/${editingId.value}`, payload)
+      await axios.put(`/api/v1/rules/${editingId.value}`, {
+        id: editingId.value,
+        ...payload
+      })
       ElMessage.success('规则更新成功')
     } else {
       await axios.post('/api/v1/rules', payload)

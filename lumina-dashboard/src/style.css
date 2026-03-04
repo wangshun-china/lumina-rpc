@@ -59,3 +59,62 @@ body {
     @apply bg-red-500 hover:bg-red-600 text-white font-medium py-2 px-4 rounded-lg shadow-md transition-all duration-200;
   }
 }
+
+/* Element Plus 下拉框白底白字修复 */
+.el-select-dropdown__item {
+  color: #333333 !important;
+}
+
+.el-select-dropdown__item.is-hovering {
+  background-color: #f5f7fa !important;
+}
+
+.el-select-dropdown__item.is-selected {
+  color: #409eff !important;
+  font-weight: 500;
+}
+
+/* 暴力修复所有 Element Plus 下拉框样式 */
+.el-input__wrapper,
+.el-input__inner,
+.el-select-dropdown__item,
+.el-select-dropdown__item span,
+.el-select .el-input__wrapper input,
+.el-select-dropdown__list {
+    color: #1f2937 !important;
+    -webkit-text-fill-color: #1f2937 !important;
+}
+
+/* 下拉选项悬浮状态背景 */
+.el-select-dropdown__item.hover,
+.el-select-dropdown__item:hover {
+    background-color: #f3f4f6 !important;
+}
+
+/* 下拉选项选中状态 */
+.el-select-dropdown__item.selected {
+    color: #3b82f6 !important;
+    font-weight: bold !important;
+}
+
+/* 下拉面板背景 */
+.el-select-dropdown {
+    background-color: #ffffff !important;
+    border: 1px solid #e5e7eb !important;
+}
+
+/* 下拉面板项 */
+.el-select-dropdown__item {
+    color: #374151 !important;
+}
+
+/* 输入框内部 */
+.el-input__wrapper {
+    background-color: #ffffff !important;
+    box-shadow: 0 0 0 1px #d1d5db inset !important;
+}
+
+/* 强制所有文本为深色 */
+.el-select-dropdown__item span {
+    color: #374151 !important;
+}
