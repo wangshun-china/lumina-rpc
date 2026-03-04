@@ -41,7 +41,8 @@
       "Bash(mvn install:install-file:*)",
       "Bash(mvn help:evaluate:*)",
       "Bash(env:*)",
-      "Bash(unzip:*)"
+      "Bash(unzip:*)",
+      "Bash(npm run:*)"
     ]
   }
 }

@@ -10,7 +10,6 @@ target/
 # 排除极其庞大的第三方依赖包
 node_modules/
 # 排除前端打包后的产物
-dist/
 # 排除本地环境变量配置文件
 .env.local
 .env.*.local
