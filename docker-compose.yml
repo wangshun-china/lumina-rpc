@@ -38,7 +38,7 @@ services:
   # Control Plane（控制面）
   # -------------------------------------------------------
   control-plane:
-    image: crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com/lumina-rpc:control-plane
+    image: crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com/wangshun_build/wangshun_build:control-plane
     container_name: lumina-control-plane
     restart: unless-stopped
     environment:
@@ -66,7 +66,7 @@ services:
   # Dashboard（前端监控面板）
   # -------------------------------------------------------
   dashboard:
-    image: crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com/lumina-rpc:dashboard
+    image: crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com/wangshun_build/wangshun_build:dashboard
     container_name: lumina-dashboard
     restart: unless-stopped
     ports:
@@ -84,7 +84,7 @@ services:
   # Warp Engine Service（曲率引擎服务）
   # -------------------------------------------------------
   sample-engine:
-    image: crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com/lumina-rpc:engine
+    image: crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com/wangshun_build/wangshun_build:engine
     container_name: lumina-sample-engine
     restart: unless-stopped
     environment:
@@ -107,7 +107,7 @@ services:
   # Deep Space Radar Service（深空雷达服务）
   # -------------------------------------------------------
   sample-radar:
-    image: crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com/lumina-rpc:radar
+    image: crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com/wangshun_build/wangshun_build:radar
     container_name: lumina-sample-radar
     restart: unless-stopped
     environment:
@@ -130,7 +130,7 @@ services:
   # Fleet Command Gateway（舰队指挥网关）
   # -------------------------------------------------------
   sample-command:
-    image: crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com/lumina-rpc:command
+    image: crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com/wangshun_build/wangshun_build:command
     container_name: lumina-sample-command
     restart: unless-stopped
     environment:

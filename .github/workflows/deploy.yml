@@ -7,7 +7,7 @@ on:
 
 env:
   REGISTRY: crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com
-  IMAGE_NAME: lumina-rpc
+  IMAGE_NAME: wangshun_build/wangshun_build
 
 jobs:
   deploy:
