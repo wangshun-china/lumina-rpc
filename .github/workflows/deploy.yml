@@ -49,38 +49,52 @@ jobs:
           username: aliyun4384550071
           password: wangshun817
 
-      # Step 6: 构建并推送后端服务镜像
-      # 6.1 Control Plane
+      # Step 6: 搬运 Jar 包到根目录 (Dockerfile 需要从根目录 COPY)
+      - name: Copy JAR files to root
+        run: |
+          cp lumina-control-plane/target/lumina-control-plane-exec.jar .
+          cp lumina-sample-engine/target/lumina-sample-engine-exec.jar .
+          cp lumina-sample-radar/target/lumina-sample-radar-exec.jar .
+          cp lumina-sample-command/target/lumina-sample-command-exec.jar .
+
+      # Step 6.1: 搬运前端 dist 和 nginx.conf 到根目录
+      - name: Copy frontend files to root
+        run: |
+          cp -r lumina-dashboard/dist .
+          cp lumina-dashboard/nginx.conf .
+
+      # Step 7: 构建并推送后端服务镜像
+      # 7.1 Control Plane
       - name: Build and push control-plane
         run: |
           docker build -f Dockerfile.control-plane -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:control-plane .
           docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:control-plane
 
-      # 6.2 Sample Engine
+      # 7.2 Sample Engine
       - name: Build and push engine
         run: |
           docker build -f Dockerfile.sample-engine -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:engine .
           docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:engine
 
-      # 6.3 Sample Radar
+      # 7.3 Sample Radar
       - name: Build and push radar
         run: |
           docker build -f Dockerfile.sample-radar -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:radar .
           docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:radar
 
-      # 6.4 Sample Command
+      # 7.4 Sample Command
       - name: Build and push command
         run: |
           docker build -f Dockerfile.sample-command -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:command .
           docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:command
 
-      # Step 7: 构建并推送前端 Dashboard 镜像
+      # Step 8: 构建并推送前端 Dashboard 镜像
       - name: Build and push dashboard
         run: |
           docker build -f Dockerfile.front -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dashboard .
           docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dashboard
 
-      # Step 8: 推送 docker-compose.yml 到服务器
+      # Step 9: 推送 docker-compose.yml 到服务器
       - name: Deploy docker-compose.yml via SCP
         uses: appleboy/scp-action@master
         with:
@@ -99,7 +113,7 @@ jobs:
           target: "/home/ubuntu/lumina-rpc-prod"
           command_timeout: 1m
 
-      # Step 9: 远程部署 - 登录 ACR 并拉取镜像启动
+      # Step 10: 远程部署 - 登录 ACR 并拉取镜像启动
       - name: Deploy with SSH
         uses: appleboy/ssh-action@master
         with:
