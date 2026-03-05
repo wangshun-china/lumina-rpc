@@ -3,6 +3,7 @@ version: '3.8'
 # ============================================================
 # Lumina-RPC Docker Compose
 # 完整服务编排（5 个微服务 + MySQL）
+# 镜像模式：从 ACR 拉取预构建镜像
 # ============================================================
 
 services:
@@ -37,9 +38,7 @@ services:
   # Control Plane（控制面）
   # -------------------------------------------------------
   control-plane:
-    build:
-      context: .
-      dockerfile: Dockerfile.control-plane
+    image: crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com/lumina-rpc:control-plane
     container_name: lumina-control-plane
     restart: unless-stopped
     environment:
@@ -62,16 +61,12 @@ services:
       options:
         max-size: "50m"
         max-file: "3"
-    volumes:
-      - ./lumina-control-plane/src/main/resources/application.yml:/app/config/application.yml:ro
 
   # -------------------------------------------------------
   # Dashboard（前端监控面板）
   # -------------------------------------------------------
   dashboard:
-    build:
-      context: .
-      dockerfile: Dockerfile.front
+    image: crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com/lumina-rpc:dashboard
     container_name: lumina-dashboard
     restart: unless-stopped
     ports:
@@ -89,9 +84,7 @@ services:
   # Warp Engine Service（曲率引擎服务）
   # -------------------------------------------------------
   sample-engine:
-    build:
-      context: .
-      dockerfile: Dockerfile.sample-engine
+    image: crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com/lumina-rpc:engine
     container_name: lumina-sample-engine
     restart: unless-stopped
     environment:
@@ -114,9 +107,7 @@ services:
   # Deep Space Radar Service（深空雷达服务）
   # -------------------------------------------------------
   sample-radar:
-    build:
-      context: .
-      dockerfile: Dockerfile.sample-radar
+    image: crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com/lumina-rpc:radar
     container_name: lumina-sample-radar
     restart: unless-stopped
     environment:
@@ -139,9 +130,7 @@ services:
   # Fleet Command Gateway（舰队指挥网关）
   # -------------------------------------------------------
   sample-command:
-    build:
-      context: .
-      dockerfile: Dockerfile.sample-command
+    image: crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com/lumina-rpc:command
     container_name: lumina-sample-command
     restart: unless-stopped
     environment:
@@ -160,8 +149,6 @@ services:
       resources:
         limits:
           memory: 512M
-    volumes:
-      - ./lumina-sample-command/src/main/resources/application.yml:/app/config/application.yml:ro
 
 # -------------------------------------------------------
 # 网络定义

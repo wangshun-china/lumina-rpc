@@ -3,7 +3,11 @@ name: Deploy to Production
 on:
   push:
     branches:
-      - master  # 监听 master 分支的变动
+      - master
+
+env:
+  REGISTRY: crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com
+  IMAGE_NAME: lumina-rpc
 
 jobs:
   deploy:
@@ -21,11 +25,11 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
 
-      # Step 3: 全量构建后端 - 强制生成 Fat JAR
+      # Step 3: 全量构建后端 - 生成 Fat JAR
       - name: Build backend with Maven
         run: mvn clean package -DskipTests
 
-      # Step 4: 安装 Node.js 并构建前端 (在 GitHub 免费强悍的机器上编译)
+      # Step 4: 安装 Node.js 并构建前端
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -37,30 +41,52 @@ jobs:
           pnpm install
           pnpm build
 
-      # Step 5: 整理部署物料到临时目录 (保证服务器收到的是极简的产物)
-      - name: Prepare deployment artifacts
+      # Step 5: 登录阿里云仓库
+      - name: Login to Aliyun ACR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: aliyun4384550071
+          password: wangshun817
+
+      # Step 6: 构建并推送后端服务镜像
+      # 6.1 Control Plane
+      - name: Build and push control-plane
         run: |
-          mkdir -p deploy_package
+          docker build -f Dockerfile.control-plane -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:control-plane .
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:control-plane
 
-          # 拷贝后端可执行 jar
-          find . -name "*-exec.jar" -exec cp {} deploy_package/ \;
+      # 6.2 Sample Engine
+      - name: Build and push engine
+        run: |
+          docker build -f Dockerfile.sample-engine -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:engine .
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:engine
 
-          # 拷贝 Dockerfiles 和 Compose 脚本
-          cp docker-compose.yml deploy_package/
-          cp Dockerfile.* deploy_package/
+      # 6.3 Sample Radar
+      - name: Build and push radar
+        run: |
+          docker build -f Dockerfile.sample-radar -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:radar .
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:radar
 
-          # 拷贝前端产物 (dist 和 nginx.conf 放根目录，与 Dockerfile.front 匹配)
-          cp -r lumina-dashboard/dist deploy_package/
-          cp lumina-dashboard/nginx.conf deploy_package/
+      # 6.4 Sample Command
+      - name: Build and push command
+        run: |
+          docker build -f Dockerfile.sample-command -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:command .
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:command
 
-      # Step 6: SCP 复制“纯净物料”到服务器 (硬编码密钥版)
-      - name: Deploy to Server via SCP
+      # Step 7: 构建并推送前端 Dashboard 镜像
+      - name: Build and push dashboard
+        run: |
+          docker build -f Dockerfile.front -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dashboard .
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dashboard
+
+      # Step 8: 推送 docker-compose.yml 到服务器
+      - name: Deploy docker-compose.yml via SCP
         uses: appleboy/scp-action@master
         with:
           host: "42.193.105.133"
           username: "ubuntu"
           port: 22
-          # 极其关键：硬编码私钥，必须保留管道符 `|`，且严格对其
           key: |
             -----BEGIN OPENSSH PRIVATE KEY-----
             b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW
@@ -69,12 +95,11 @@ jobs:
             AAAEAXBYMkCWPdQj8wuwo2sFDpNQkahl9K2g5kJwMOtPhGnSFd/sDtGoodGLTdQl9mBpEz
             6f0W+yhuwtBZNT6Coy2tAAAAETI2MDYyMDkzMDdAcXEuY29tAQIDBA==
             -----END OPENSSH PRIVATE KEY-----
-          source: "deploy_package/*"
+          source: "docker-compose.yml"
           target: "/home/ubuntu/lumina-rpc-prod"
-          strip_components: 1  # 去掉 deploy_package 这个包裹层，让文件直接铺在生产目录下
-          command_timeout: 10m
+          command_timeout: 1m
 
-      # Step 7: 远程执行 Docker Compose (硬编码密钥版)
+      # Step 9: 远程部署 - 登录 ACR 并拉取镜像启动
       - name: Deploy with SSH
         uses: appleboy/ssh-action@master
         with:
@@ -90,21 +115,21 @@ jobs:
             6f0W+yhuwtBZNT6Coy2tAAAAETI2MDYyMDkzMDdAcXEuY29tAQIDBA==
             -----END OPENSSH PRIVATE KEY-----
           script: |
-            echo "Deploying to /home/ubuntu/lumina-rpc-prod..."
             cd /home/ubuntu/lumina-rpc-prod
-            
-            # 确保拥有操作权限
-            sudo chown -R ubuntu:ubuntu .
 
-            # 停止旧容器
-            echo "Stopping old containers in prod..."
-            sudo docker-compose down || true
+            # 强制登录 ACR，确保服务器有拉取权限
+            echo "Logging into Aliyun ACR..."
+            echo "wangshun817" | sudo docker login crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com -u aliyun4384550071 --password-stdin
 
-            # 重新构建并启动新容器
-            echo "Building and starting new containers..."
-            sudo docker-compose up -d --build
-            
-            # 清理无用的虚悬镜像释放磁盘空间
+            # 下拉新镜像
+            echo "Pulling latest images..."
+            sudo docker-compose pull
+
+            # 重启服务
+            echo "Starting services..."
+            sudo docker-compose up -d
+
+            # 清理虚悬镜像
             sudo docker image prune -f
 
             echo "Deployment completed successfully!"
