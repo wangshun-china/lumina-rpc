@@ -41,18 +41,17 @@ jobs:
       - name: Prepare deployment artifacts
         run: |
           mkdir -p deploy_package
-          
+
           # 拷贝后端可执行 jar
           find . -name "*-exec.jar" -exec cp {} deploy_package/ \;
-          
+
           # 拷贝 Dockerfiles 和 Compose 脚本
           cp docker-compose.yml deploy_package/
           cp Dockerfile.* deploy_package/
-          
-          # 拷贝前端产物与 Nginx 配置
-          mkdir -p deploy_package/lumina-dashboard
-          cp -r lumina-dashboard/dist deploy_package/lumina-dashboard/
-          cp lumina-dashboard/nginx.conf deploy_package/lumina-dashboard/
+
+          # 拷贝前端产物 (dist 和 nginx.conf 放根目录，与 Dockerfile.front 匹配)
+          cp -r lumina-dashboard/dist deploy_package/
+          cp lumina-dashboard/nginx.conf deploy_package/
 
       # Step 6: SCP 复制“纯净物料”到服务器 (硬编码密钥版)
       - name: Deploy to Server via SCP

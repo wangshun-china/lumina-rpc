@@ -1,43 +1,16 @@
 # ============================================================
-# Sample Command Dockerfile
+# Sample Command Dockerfile (纯运行时)
+# 由 GitHub Actions 构建产物，服务器只需运行
 # ============================================================
 
-# Stage 1: Build
-FROM maven:3.9-eclipse-temurin-21 AS builder
-
-WORKDIR /build
-
-COPY pom.xml .
-COPY lumina-rpc-protocol/pom.xml lumina-rpc-protocol/
-COPY lumina-rpc-core/pom.xml lumina-rpc-core/
-COPY lumina-control-plane/pom.xml lumina-control-plane/
-COPY lumina-sample-engine/pom.xml lumina-sample-engine/
-COPY lumina-sample-radar/pom.xml lumina-sample-radar/
-COPY lumina-sample-command/pom.xml lumina-sample-command/
-
-RUN mvn dependency:go-offline -B
-
-COPY lumina-rpc-protocol/src lumina-rpc-protocol/src
-COPY lumina-rpc-core/src lumina-rpc-core/src
-COPY lumina-control-plane/src lumina-control-plane/src
-COPY lumina-sample-engine/src lumina-sample-engine/src
-COPY lumina-sample-radar/src lumina-sample-radar/src
-COPY lumina-sample-command/src lumina-sample-command/src
-
-# 先安装依赖模块（使用reactor）
-RUN mvn clean install -pl lumina-sample-engine,lumina-sample-radar -am -DskipTests -Dmaven.install.skip=false
-
-# 再构建sample-command
-RUN mvn clean package -pl lumina-sample-command -am -DskipTests
-
-# Stage 2: Runtime
 FROM eclipse-temurin:21-jre-alpine
 
 WORKDIR /app
 
 RUN addgroup -S lumina && adduser -S lumina -G lumina
 
-COPY --from=builder /build/lumina-sample-command/target/lumina-sample-command-exec.jar app.jar
+# 复制 GitHub Actions 传过来的 Fat JAR
+COPY lumina-sample-command-exec.jar app.jar
 
 RUN chown -R lumina:lumina /app
 USER lumina
