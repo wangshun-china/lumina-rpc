@@ -35,12 +35,12 @@
         </dependency>
 
         <!-- H2 Database (用于开发/测试) -->
-        <dependency>
-            <groupId>com.h2database</groupId>
-            <artifactId>h2</artifactId>
-            <scope>runtime</scope>
-            <optional>true</optional>
-        </dependency>
+<!--        <dependency>-->
+<!--            <groupId>com.h2database</groupId>-->
+<!--            <artifactId>h2</artifactId>-->
+<!--            <scope>runtime</scope>-->
+<!--            <optional>true</optional>-->
+<!--        </dependency>-->
 
         <!-- 测试相关依赖（解决@Test/@SpringBootTest找不到的问题） -->
         <dependency>
