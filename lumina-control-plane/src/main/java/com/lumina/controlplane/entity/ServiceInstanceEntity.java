@@ -55,14 +55,16 @@ public class ServiceInstanceEntity {
             lastHeartbeat = LocalDateTime.now();
         }
         if (expiresAt == null) {
-            expiresAt = LocalDateTime.now().plusMinutes(2);
+            expiresAt = LocalDateTime.now().plusSeconds(90); // 90秒过期（容忍 2 次心跳丢失）
         }
     }
 
     @PreUpdate
     protected void onUpdate() {
-        if (lastHeartbeat != null) {
-            expiresAt = lastHeartbeat.plusMinutes(2);
+        // 高可用：只有在未显式设置 expiresAt 时才自动计算
+        // ServiceInstanceService.heartbeat() 会显式设置 expiresAt = now + 90s
+        if (expiresAt == null && lastHeartbeat != null) {
+            expiresAt = lastHeartbeat.plusSeconds(90);
         }
     }
 

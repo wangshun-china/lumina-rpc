@@ -42,8 +42,11 @@ services:
     container_name: lumina-control-plane
     restart: unless-stopped
     environment:
-      JAVA_OPTS: "-Xms128m -Xmx256m -XX:+UseG1GC"
+      JAVA_OPTS: "-Xms128m -Xmx256m -XX:+UseG1GC -XX:+ExitOnOutOfMemoryError"
       SPRING_PROFILES_ACTIVE: prod
+      MYSQL_URL: jdbc:mysql://mysql:3306/lumina?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&connectTimeout=30000&socketTimeout=60000&allowPublicKeyRetrieval=true
+      MYSQL_USER: lumina
+      MYSQL_PASSWORD: lumina123
     ports:
       - "8080:8080"
     networks:
@@ -88,7 +91,7 @@ services:
     container_name: lumina-sample-engine
     restart: unless-stopped
     environment:
-      JAVA_OPTS: "-Xms128m -Xmx256m"
+      JAVA_OPTS: "-Xms128m -Xmx256m -XX:+ExitOnOutOfMemoryError"
       LUMINA_RPC_CONTROL_PLANE_URL: http://control-plane:8080
       LUMINA_RPC_SERVER_HOST: sample-engine
     ports:
@@ -111,7 +114,7 @@ services:
     container_name: lumina-sample-radar
     restart: unless-stopped
     environment:
-      JAVA_OPTS: "-Xms128m -Xmx256m"
+      JAVA_OPTS: "-Xms128m -Xmx256m -XX:+ExitOnOutOfMemoryError"
       LUMINA_RPC_CONTROL_PLANE_URL: http://control-plane:8080
       LUMINA_RPC_SERVER_HOST: sample-radar
     ports:
@@ -134,7 +137,7 @@ services:
     container_name: lumina-sample-command
     restart: unless-stopped
     environment:
-      JAVA_OPTS: "-Xms128m -Xmx256m"
+      JAVA_OPTS: "-Xms128m -Xmx256m -XX:+ExitOnOutOfMemoryError"
       LUMINA_RPC_CONTROL_PLANE_URL: http://control-plane:8080
     ports:
       - "8083:8083"

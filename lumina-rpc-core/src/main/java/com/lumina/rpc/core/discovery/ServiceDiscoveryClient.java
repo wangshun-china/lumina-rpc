@@ -76,14 +76,27 @@ public class ServiceDiscoveryClient {
         }
     }
 
+    // 本地缓存保留策略：AP 架构高可用原则
+    private static List<ServiceInstance> lastSuccessfulInstances = new ArrayList<>();
+    private static volatile long lastSuccessfulFetchTime = 0;
+
     /**
-     * 刷新所有服务实例
+     * 刷新所有服务实例（高可用加固版）
+     *
+     * AP 架构原则：当控制面不可用时，保留上一次成功拉取的缓存数据
+     * 不因为一次拉取失败就清空本地路由表！
      */
     public static void refreshAllServices() {
         try {
             List<ServiceInstance> instances = fetchAllInstances();
-            if (instances.isEmpty()) {
-                logger.warn("No service instances fetched from control plane");
+
+            // 高可用策略：如果拉取为空，保留上一次缓存，不打错误日志
+            if (instances == null || instances.isEmpty()) {
+                long secondsSinceLastSuccess = (System.currentTimeMillis() - lastSuccessfulFetchTime) / 1000;
+                logger.warn("⚠️ [HA-Discovery] No service instances fetched from control plane. " +
+                        "Keeping {} cached instances from {} seconds ago. " +
+                        "This is normal during network jitter or control plane restart.",
+                        lastSuccessfulInstances.size(), secondsSinceLastSuccess);
                 return;
             }
 
@@ -98,10 +111,20 @@ public class ServiceDiscoveryClient {
                 ServiceDiscovery.updateServiceInstances(entry.getKey(), entry.getValue());
             }
 
-            logger.info("Refreshed {} services from control plane", grouped.size());
+            // 记录成功状态
+            lastSuccessfulInstances = new ArrayList<>(instances);
+            lastSuccessfulFetchTime = System.currentTimeMillis();
+
+            logger.info("✅ [HA-Discovery] Refreshed {} services ({} instances) from control plane",
+                    grouped.size(), instances.size());
 
         } catch (Exception e) {
-            logger.error("Failed to refresh services from control plane", e);
+            // 高可用：任何异常都不应该清空缓存！
+            long secondsSinceLastSuccess = (System.currentTimeMillis() - lastSuccessfulFetchTime) / 1000;
+            logger.error("❌ [HA-Discovery] Failed to refresh services: {}. " +
+                    "Keeping {} cached instances from {} seconds ago. " +
+                    "This is an AP architecture - availability over consistency.",
+                    e.getMessage(), lastSuccessfulInstances.size(), secondsSinceLastSuccess, e);
         }
     }
 

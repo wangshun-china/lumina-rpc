@@ -34,9 +34,9 @@ public class ServiceRegistryClient {
 
     private static final Logger logger = LoggerFactory.getLogger(ServiceRegistryClient.class);
 
-    // 超时配置（秒）
-    private static final int CONNECT_TIMEOUT = 10;
-    private static final int REQUEST_TIMEOUT = 15;
+    // 超时配置（秒）- 高可用优化：快速失败，防止阻塞
+    private static final int CONNECT_TIMEOUT = 5;   // 连接超时 5 秒
+    private static final int REQUEST_TIMEOUT = 10;  // 读取超时 10 秒
 
     // 注册重试配置
     private static final int MAX_RETRY_COUNT = 3;
@@ -215,9 +215,21 @@ public class ServiceRegistryClient {
     }
 
     /**
-     * 发送心跳
+     * 发送心跳（高可用加固版）
+     *
+     * 关键防御机制：
+     * 1. 严格的 try-catch (Exception e)：任何异常都不允许抛出，防止中断定时器
+     * 2. 快速超时：连接 5 秒，读取 10 秒，防止线程阻塞
+     * 3. 详细错误日志：记录失败原因便于排查
      */
     public static void heartbeat() {
+        if (!registered) {
+            // 如果还未注册成功，尝试重新注册
+            logger.debug("Service not registered yet, attempting re-registration...");
+            registerWithRetry(0);
+            return;
+        }
+
         try {
             String url = controlPlaneUrl + "/api/v1/registry/heartbeat/" + instanceId;
 
@@ -230,11 +242,34 @@ public class ServiceRegistryClient {
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
             if (response.statusCode() == 200) {
-                logger.debug("Heartbeat sent for instance: {}", instanceId);
+                logger.debug("Heartbeat sent successfully for instance: {}", instanceId);
+            } else if (response.statusCode() == 404) {
+                // 实例不存在，需要重新注册
+                logger.warn("Instance not found on control plane (HTTP 404), will re-register: {}", instanceId);
+                registered = false;
+                registerWithRetry(0);
+            } else {
+                logger.warn("Heartbeat returned unexpected status: HTTP {} for instance: {}",
+                        response.statusCode(), instanceId);
             }
 
+        } catch (java.net.http.HttpTimeoutException e) {
+            // 超时异常：记录但不中断定时器
+            logger.error("❌ [HA-Heartbeat] Timeout sending heartbeat for {}: {}. " +
+                    "Control plane may be overloaded or network congested.", instanceId, e.getMessage());
+        } catch (java.net.ConnectException e) {
+            // 连接异常：控制面可能暂时不可用
+            logger.error("❌ [HA-Heartbeat] Connection refused for {}: {}. " +
+                    "Control plane may be temporarily unavailable.", instanceId, e.getMessage());
+        } catch (InterruptedException e) {
+            // 中断异常：恢复中断状态但不抛出
+            logger.error("❌ [HA-Heartbeat] Interrupted while sending heartbeat for {}: {}",
+                    instanceId, e.getMessage());
+            Thread.currentThread().interrupt();
         } catch (Exception e) {
-            logger.warn("Failed to send heartbeat for instance: {}", instanceId, e);
+            // 绝对不允许任何异常中断定时器！
+            logger.error("❌ [HA-Heartbeat] Unexpected error sending heartbeat for {}: {} - {}",
+                    instanceId, e.getClass().getSimpleName(), e.getMessage(), e);
         }
     }
 

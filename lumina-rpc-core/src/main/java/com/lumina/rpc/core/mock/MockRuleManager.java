@@ -11,6 +11,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -36,8 +37,8 @@ public class MockRuleManager {
     // ObjectMapper 用于 JSON 解析和数据合并
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    // Mock 规则缓存: serviceName -> Map<methodName, MockRule>
-    private final ConcurrentHashMap<String, ConcurrentHashMap<String, MockRule>> ruleCache = new ConcurrentHashMap<>();
+    // Mock 规则缓存: serviceName -> List<MockRule>（支持同一方法的多个规则，按优先级排序）
+    private final ConcurrentHashMap<String, List<MockRule>> ruleCache = new ConcurrentHashMap<>();
 
     private MockRuleManager() {
         // 单例模式
@@ -48,76 +49,103 @@ public class MockRuleManager {
     }
 
     /**
-     * 检查是否有匹配的 Mock 规则（无条件检查）
+     * 检查是否有启用的 Mock 规则
      */
     public boolean hasMockRule(String serviceName, String methodName) {
-        ConcurrentHashMap<String, MockRule> methodRules = ruleCache.get(serviceName);
-        if (methodRules == null || methodRules.isEmpty()) {
+        List<MockRule> rules = ruleCache.get(serviceName);
+        if (rules == null || rules.isEmpty()) {
             return false;
         }
-        return methodRules.containsKey(methodName) || methodRules.containsKey("*");
+        // 检查是否有启用的规则匹配该方法
+        return rules.stream()
+                .filter(MockRule::isEnabled)
+                .anyMatch(rule -> methodName.equals(rule.getMethodName()) || "*".equals(rule.getMethodName()));
     }
 
     /**
-     * 检查是否有匹配的 Mock 规则（带多条件检查）
+     * 获取匹配的规则（严格遵循遍历控制流）
      *
-     * 支持多参数组合匹配（AND 关系）
+     * 匹配逻辑：
+     * 1. 忽略停用的规则 (enabled == false)
+     * 2. 无条件规则直接命中返回
+     * 3. 有条件规则进行参数比对，不匹配时 continue 继续看下一条
+     * 4. 遍历结束未命中返回 null，让外层发起真实请求
+     *
+     * @param serviceName 服务名
+     * @param methodName  方法名
+     * @param args        调用参数
+     * @return 命中的规则，未命中返回 null
      */
     public MockRule getMatchingRule(String serviceName, String methodName, Object[] args) {
-        ConcurrentHashMap<String, MockRule> methodRules = ruleCache.get(serviceName);
-        if (methodRules == null || methodRules.isEmpty()) {
+        List<MockRule> rules = ruleCache.get(serviceName);
+        if (rules == null || rules.isEmpty()) {
             logger.debug("🔍 Mock检查: [{}.{}] -> 规则缓存为空", serviceName, methodName);
             return null;
         }
 
-        logger.info("🔍 Mock检查: [{}.{}] -> 正在匹配规则，参数: {}", serviceName, methodName, args != null ? args.length : 0);
+        logger.info("🔍 Mock检查: [{}.{}] -> 正在匹配规则，参数数量: {}", serviceName, methodName, args != null ? args.length : 0);
 
-        // 先尝试精确匹配
-        MockRule rule = methodRules.get(methodName);
-        if (rule != null) {
-            boolean matched = matchesAllConditions(rule, args);
-            if (matched) {
-                logger.info("✅ 匹配成功，准备执行 {} 模式 (方法名精确匹配)", rule.getMockType());
+        // 获取该服务下的所有规则，按方法名过滤并按优先级排序（高优先级在前）
+        List<MockRule> rulesOfThisMethod = rules.stream()
+                .filter(rule -> methodName.equals(rule.getMethodName()) || "*".equals(rule.getMethodName()))
+                .sorted((r1, r2) -> Integer.compare(r2.getPriority(), r1.getPriority())) // 按优先级降序
+                .toList();
+
+        if (rulesOfThisMethod.isEmpty()) {
+            logger.debug("🔍 Mock检查: [{}.{}] -> 无该方法的规则", serviceName, methodName);
+            return null;
+        }
+
+        // 严格遵循的遍历控制流
+        for (MockRule rule : rulesOfThisMethod) {
+            // 1. 忽略停用的规则
+            if (!rule.isEnabled()) {
+                logger.debug("🔍 Mock检查: 规则[method={}, priority={}] 已停用，跳过", rule.getMethodName(), rule.getPriority());
+                continue;
+            }
+
+            // 2. 无条件规则，直接命中
+            if (!rule.hasCondition()) {
+                logger.info("✅ 匹配成功: 无条件规则 [method={}, priority={}, type={}]",
+                        rule.getMethodName(), rule.getPriority(), rule.getMockType());
                 return rule;
+            }
+
+            // 3. 有条件规则，进行参数比对
+            boolean isMatch = evaluateCondition(rule.getConditionRule(), args);
+            if (isMatch) {
+                logger.info("✅ 匹配成功: 条件规则 [method={}, priority={}, type={}]",
+                        rule.getMethodName(), rule.getPriority(), rule.getMockType());
+                return rule;
+            } else {
+                // ❌ 核心修复：如果不匹配，必须 continue 去看下一条规则！绝不能 return null 或 throw 异常！
+                logger.debug("🔍 Mock检查: 规则[method={}, priority={}] 条件不匹配，继续检查下一条",
+                        rule.getMethodName(), rule.getPriority());
+                continue;
             }
         }
 
-        // 尝试通配符匹配
-        rule = methodRules.get("*");
-        if (rule != null) {
-            boolean matched = matchesAllConditions(rule, args);
-            if (matched) {
-                logger.info("✅ 匹配成功，准备执行 {} 模式 (通配符匹配)", rule.getMockType());
-                return rule;
-            }
-        }
-
-        logger.info("❌ 匹配失败: [{}.{}] 无符合条件的规则", serviceName, methodName);
+        // 4. 循环结束，一条都没命中，返回 null，让外层去发起真实网络请求
+        logger.info("❌ 匹配失败: [{}.{}] 遍历了 {} 条规则，无符合条件的", serviceName, methodName, rulesOfThisMethod.size());
         return null;
     }
 
     /**
-     * 检查是否匹配所有条件（AND 关系）
+     * 评估条件规则是否匹配
      *
-     * 条件规则格式（列表结构）：
-     * [{"index": 0, "value": "USS-1701"}, {"index": 1, "value": "Sector-Alpha"}]
-     * 表示：args[0] == "USS-1701" AND args[1] == "Sector-Alpha" 时触发
-     *
-     * 也兼容旧格式：
-     * {"argIndex": 0, "matchValue": "USS-1701"}
+     * @param conditionRule 条件规则 JSON
+     * @param args          调用参数
+     * @return 是否匹配
      */
-    @SuppressWarnings("unchecked")
-    private boolean matchesAllConditions(MockRule rule, Object[] args) {
-        // 无条件规则，直接匹配
-        if (!rule.hasCondition()) {
+    private boolean evaluateCondition(String conditionRule, Object[] args) {
+        if (conditionRule == null || conditionRule.isEmpty()) {
             return true;
         }
 
         try {
-            String conditionJson = rule.getConditionRule();
-            JsonNode conditionNode = objectMapper.readTree(conditionJson);
+            JsonNode conditionNode = objectMapper.readTree(conditionRule);
 
-            // 新格式：条件列表（数组）
+            // 新格式：条件列表（数组）- 所有条件必须匹配（AND 关系）
             if (conditionNode.isArray()) {
                 for (JsonNode cond : conditionNode) {
                     if (!matchesSingleCondition(cond, args)) {
@@ -133,7 +161,7 @@ public class MockRuleManager {
             }
 
         } catch (Exception e) {
-            logger.warn("Failed to parse condition rule: {}", rule.getConditionRule(), e);
+            logger.warn("Failed to parse condition rule: {}", conditionRule, e);
         }
 
         return false;
@@ -944,42 +972,56 @@ public class MockRuleManager {
     }
 
     /**
-     * 获取 Mock 规则
+     * 获取匹配的第一条启用的 Mock 规则（按优先级排序）
+     *
+     * @deprecated 请使用 getMatchingRule(serviceName, methodName, args) 进行完整匹配
      */
+    @Deprecated
     public MockRule getMockRule(String serviceName, String methodName) {
-        ConcurrentHashMap<String, MockRule> methodRules = ruleCache.get(serviceName);
-        if (methodRules == null) {
+        List<MockRule> rules = ruleCache.get(serviceName);
+        if (rules == null || rules.isEmpty()) {
             return null;
         }
-
-        MockRule rule = methodRules.get(methodName);
-        if (rule != null) {
-            return rule;
-        }
-
-        return methodRules.get("*");
+        // 返回匹配该方法的第一条启用的规则（按优先级降序）
+        return rules.stream()
+                .filter(MockRule::isEnabled)
+                .filter(rule -> methodName.equals(rule.getMethodName()) || "*".equals(rule.getMethodName()))
+                .max((r1, r2) -> Integer.compare(r1.getPriority(), r2.getPriority()))
+                .orElse(null);
     }
 
     /**
      * 添加或更新 Mock 规则
+     *
+     * 注意：这会添加一条新规则，如果存在相同 methodName 的规则不会覆盖，而是共存（按优先级匹配）
      */
-    public void addMockRule(String serviceName, String methodName, MockRule rule) {
-        ConcurrentHashMap<String, MockRule> methodRules =
-                ruleCache.computeIfAbsent(serviceName, k -> new ConcurrentHashMap<>());
-        methodRules.put(methodName, rule);
-
-        logger.info("📝 Mock rule added: {}.{} -> {}", serviceName, methodName, rule);
+    public void addMockRule(String serviceName, MockRule rule) {
+        List<MockRule> rules = ruleCache.computeIfAbsent(serviceName, k -> new CopyOnWriteArrayList<>());
+        rules.add(rule);
+        logger.info("📝 Mock rule added: {}.{} (priority={}, enabled={})",
+                serviceName, rule.getMethodName(), rule.getPriority(), rule.isEnabled());
     }
 
     /**
-     * 删除 Mock 规则
+     * 添加或更新 Mock 规则（兼容旧版本）
+     *
+     * @deprecated 请使用 addMockRule(String serviceName, MockRule rule)
+     */
+    @Deprecated
+    public void addMockRule(String serviceName, String methodName, MockRule rule) {
+        rule.setMethodName(methodName);
+        addMockRule(serviceName, rule);
+    }
+
+    /**
+     * 删除指定服务的所有 Mock 规则
      */
     public void removeMockRule(String serviceName, String methodName) {
-        ConcurrentHashMap<String, MockRule> methodRules = ruleCache.get(serviceName);
-        if (methodRules != null) {
-            MockRule removed = methodRules.remove(methodName);
-            if (removed != null) {
-                logger.info("🗑️ Mock rule removed: {}.{}", serviceName, methodName);
+        List<MockRule> rules = ruleCache.get(serviceName);
+        if (rules != null) {
+            boolean removed = rules.removeIf(rule -> methodName.equals(rule.getMethodName()));
+            if (removed) {
+                logger.info("🗑️ Mock rules removed: {}.{} (剩余 {} 条规则)", serviceName, methodName, rules.size());
             }
         }
     }
@@ -988,7 +1030,7 @@ public class MockRuleManager {
      * 清除指定服务的所有 Mock 规则
      */
     public void clearServiceRules(String serviceName) {
-        ConcurrentHashMap<String, MockRule> removed = ruleCache.remove(serviceName);
+        List<MockRule> removed = ruleCache.remove(serviceName);
         if (removed != null && !removed.isEmpty()) {
             logger.info("🗑️ Cleared {} mock rules for service: {}", removed.size(), serviceName);
         }
@@ -999,7 +1041,7 @@ public class MockRuleManager {
      */
     public void clearAll() {
         int totalRules = ruleCache.values().stream()
-                .mapToInt(Map::size)
+                .mapToInt(List::size)
                 .sum();
         ruleCache.clear();
         logger.info("🗑️ Cleared all {} mock rules", totalRules);
@@ -1014,13 +1056,12 @@ public class MockRuleManager {
             return;
         }
 
-        ConcurrentHashMap<String, MockRule> newRules = new ConcurrentHashMap<>();
+        List<MockRule> newRules = new CopyOnWriteArrayList<>();
         for (Map<String, Object> ruleData : rules) {
             try {
                 MockRule rule = parseRule(ruleData);
-                if (rule != null && rule.isEnabled()) {
-                    String methodName = (String) ruleData.getOrDefault("methodName", "*");
-                    newRules.put(methodName, rule);
+                if (rule != null) {
+                    newRules.add(rule);
                 }
             } catch (Exception e) {
                 logger.warn("Failed to parse mock rule: {}", ruleData, e);
@@ -1028,7 +1069,9 @@ public class MockRuleManager {
         }
 
         ruleCache.put(serviceName, newRules);
-        logger.info("🔄 Updated {} mock rules for service: {}", newRules.size(), serviceName);
+        logger.info("🔄 Updated {} mock rules for service: {} (enabled: {})",
+                newRules.size(), serviceName,
+                newRules.stream().filter(MockRule::isEnabled).count());
     }
 
     /**
@@ -1088,7 +1131,7 @@ public class MockRuleManager {
     /**
      * 获取所有 Mock 规则
      */
-    public Map<String, ConcurrentHashMap<String, MockRule>> getAllRules() {
+    public Map<String, List<MockRule>> getAllRules() {
         return new ConcurrentHashMap<>(ruleCache);
     }
 
@@ -1097,7 +1140,7 @@ public class MockRuleManager {
      */
     public int getRuleCount() {
         return ruleCache.values().stream()
-                .mapToInt(Map::size)
+                .mapToInt(List::size)
                 .sum();
     }
 }

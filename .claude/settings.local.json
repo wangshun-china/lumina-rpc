@@ -42,7 +42,8 @@
       "Bash(mvn help:evaluate:*)",
       "Bash(env:*)",
       "Bash(unzip:*)",
-      "Bash(npm run:*)"
+      "Bash(npm run:*)",
+      "Bash(xargs grep:*)"
     ]
   }
 }

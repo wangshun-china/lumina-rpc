@@ -5,11 +5,11 @@ spring:
   application:
     name: lumina-control-plane
 
-  # Docker MySQL 本地数据库配置
+  # 数据库配置：支持环境变量覆盖，本地开发默认 localhost
   datasource:
-    url: jdbc:mysql://mysql:3306/lumina?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&connectTimeout=30000&socketTimeout=60000&allowPublicKeyRetrieval=true
-    username: lumina
-    password: lumina123
+    url: ${MYSQL_URL:jdbc:mysql://localhost:3306/lumina?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&connectTimeout=30000&socketTimeout=60000&allowPublicKeyRetrieval=true}
+    username: ${MYSQL_USER:lumina}
+    password: ${MYSQL_PASSWORD:lumina123}
     driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
       connection-timeout: 30000  # 30秒连接超时
