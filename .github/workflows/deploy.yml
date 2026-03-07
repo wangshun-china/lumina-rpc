@@ -113,7 +113,7 @@ jobs:
           target: "/home/ubuntu/lumina-rpc-prod"
           command_timeout: 1m
 
-      # Step 10: 远程部署 - 登录 ACR 并拉取镜像启动
+      # Step 10: 远程部署 - 安全清理并顺序启动
       - name: Deploy with SSH
         uses: appleboy/ssh-action@master
         with:
@@ -131,19 +131,50 @@ jobs:
           script: |
             cd /home/ubuntu/lumina-rpc-prod
 
-            # 强制登录 ACR，确保服务器有拉取权限
-            echo "Logging into Aliyun ACR..."
+            echo "=== Step 1: 登录 ACR ==="
             echo "wangshun817" | sudo docker login crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com -u aliyun4384550071 --password-stdin
 
-            # 下拉新镜像
-            echo "Pulling latest images..."
+            echo "=== Step 2: 停止 lumina 相关容器 ==="
+            # 只停止当前 docker-compose.yml 里的服务（不会碰其他容器！）
+            sudo docker-compose down
+
+            echo "=== Step 3: 删除 lumina 旧镜像 ==="
+            # 只删除 wangshun_build 命名空间的镜像，其他镜像不动
+            sudo docker images --format "{{.Repository}}:{{.Tag}} {{.ID}}" | \
+              grep "wangshun_build" | \
+              awk '{print $2}' | \
+              sort -u | \
+              xargs -r sudo docker rmi -f 2>/dev/null || true
+            echo "Old lumina images removed (if any)"
+
+            echo "=== Step 4: 拉取最新镜像 ==="
             sudo docker-compose pull
 
-            # 重启服务
-            echo "Starting services..."
+            echo "=== Step 5: 顺序启动服务 ==="
+            # 启动 MySQL
+            echo "Starting MySQL..."
+            sudo docker-compose up -d mysql
+            sleep 15
+
+            # 检查 MySQL
+            until sudo docker exec lumina-mysql mysql -ulumina -plumina123 -e "SELECT 1" 2>/dev/null; do
+              echo "Waiting for MySQL..."
+              sleep 5
+            done
+
+            # 启动 Control Plane
+            echo "Starting Control Plane..."
+            sudo docker-compose up -d control-plane
+            sleep 10
+
+            # 启动其他服务
+            echo "Starting Engine, Radar, Command..."
             sudo docker-compose up -d
 
-            # 清理虚悬镜像
+            echo "=== Step 6: 验证状态 ==="
+            sudo docker ps | grep lumina
+
+            echo "=== Step 7: 清理虚悬镜像 ==="
             sudo docker image prune -f
 
-            echo "Deployment completed successfully!"
+            echo "Deployment completed!"

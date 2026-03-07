@@ -21,4 +21,4 @@ EXPOSE 20880
 
 RUN mkdir -p /app/config
 
-ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar --spring.config.location=/app/config/"]
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]
