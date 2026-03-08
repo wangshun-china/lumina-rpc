@@ -60,8 +60,11 @@ public class ServiceRegistryClient {
     // 服务元数据（接口方法信息）
     private static String serviceMetadata;
 
-    // 心跳定时任务
+    // 心跳定时任务（独立调度器，不受重试影响）
     private static ScheduledExecutorService heartbeatScheduler;
+
+    // 注册重试调度器（与心跳分离，注册成功后可关闭）
+    private static ScheduledExecutorService retryScheduler;
 
     // 是否已注册
     private static volatile boolean registered = false;
@@ -185,6 +188,8 @@ public class ServiceRegistryClient {
 
     /**
      * 尝试重试注册
+     *
+     * 使用独立的 retryScheduler，不影响心跳调度器
      */
     private static void attemptRetry(int currentRetryCount) {
         if (currentRetryCount < MAX_RETRY_COUNT) {
@@ -192,16 +197,16 @@ public class ServiceRegistryClient {
             logger.info("🔄 [Service Registration] Retrying in {} seconds... (attempt {}/{})",
                     RETRY_DELAY_SECONDS, nextRetryCount + 1, MAX_RETRY_COUNT);
 
-            // 使用调度器延迟重试
-            if (heartbeatScheduler == null) {
-                heartbeatScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+            // 使用独立的重试调度器（与心跳分离）
+            if (retryScheduler == null) {
+                retryScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
                     Thread t = new Thread(r, "service-registry-retry");
                     t.setDaemon(true);
                     return t;
                 });
             }
 
-            heartbeatScheduler.schedule(
+            retryScheduler.schedule(
                     () -> registerWithRetry(nextRetryCount),
                     RETRY_DELAY_SECONDS,
                     TimeUnit.SECONDS
@@ -296,25 +301,27 @@ public class ServiceRegistryClient {
 
     /**
      * 启动心跳任务
+     *
+     * 使用独立的 heartbeatScheduler，不受 retryScheduler 影响
+     * 即使注册重试期间 retryScheduler 已创建，心跳任务也能正常启动
      */
     private static void startHeartbeat() {
-        if (heartbeatScheduler == null) {
-            heartbeatScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
-                Thread t = new Thread(r, "service-heartbeat");
-                t.setDaemon(true);
-                return t;
-            });
+        // 心跳调度器独立于重试调度器，始终创建新的
+        heartbeatScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "service-heartbeat");
+            t.setDaemon(true);
+            return t;
+        });
 
-            // 每 30 秒发送一次心跳
-            heartbeatScheduler.scheduleAtFixedRate(
-                    ServiceRegistryClient::heartbeat,
-                    30,
-                    30,
-                    TimeUnit.SECONDS
-            );
+        // 每 30 秒发送一次心跳
+        heartbeatScheduler.scheduleAtFixedRate(
+                ServiceRegistryClient::heartbeat,
+                30,
+                30,
+                TimeUnit.SECONDS
+        );
 
-            logger.info("Service heartbeat task started");
-        }
+        logger.info("💓 [Heartbeat] Service heartbeat task started, interval: 30s");
     }
 
     /**
@@ -328,6 +335,20 @@ public class ServiceRegistryClient {
             deregister();
         }
 
+        // 停止重试调度器
+        if (retryScheduler != null) {
+            retryScheduler.shutdown();
+            try {
+                if (!retryScheduler.awaitTermination(3, TimeUnit.SECONDS)) {
+                    retryScheduler.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                retryScheduler.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
+            logger.info("📡 [Graceful Shutdown] Retry scheduler terminated");
+        }
+
         // 停止心跳任务
         if (heartbeatScheduler != null) {
             heartbeatScheduler.shutdown();
@@ -339,6 +360,7 @@ public class ServiceRegistryClient {
                 heartbeatScheduler.shutdownNow();
                 Thread.currentThread().interrupt();
             }
+            logger.info("📡 [Graceful Shutdown] Heartbeat scheduler terminated");
         }
 
         logger.info("✅ [Graceful Shutdown] Service registry client stopped");
