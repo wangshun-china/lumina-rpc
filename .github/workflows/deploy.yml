@@ -220,7 +220,7 @@ jobs:
 
             echo "=== Step 2: 停止 lumina 相关容器 ==="
             # 只停止当前 docker-compose.yml 里的服务（不会碰其他容器！）
-            sudo docker-compose down
+            sudo docker compose down
 
             echo "=== Step 3: 删除 lumina 旧镜像 ==="
             # 只删除 wangshun_build 命名空间的镜像，其他镜像不动
@@ -232,12 +232,12 @@ jobs:
             echo "Old lumina images removed (if any)"
 
             echo "=== Step 4: 拉取最新镜像 ==="
-            sudo docker-compose pull
+            sudo docker compose pull
 
             echo "=== Step 5: 顺序启动服务 ==="
             # 启动 MySQL
             echo "Starting MySQL..."
-            sudo docker-compose up -d mysql
+            sudo docker compose up -d mysql
             sleep 15
 
             # 检查 MySQL
@@ -248,12 +248,12 @@ jobs:
 
             # 启动 Control Plane
             echo "Starting Control Plane..."
-            sudo docker-compose up -d control-plane
+            sudo docker compose up -d control-plane
             sleep 10
 
             # 启动其他服务
             echo "Starting Engine, Radar, Command..."
-            sudo docker-compose up -d
+            sudo docker compose up -d
 
             echo "=== Step 6: 验证状态 ==="
             sudo docker ps | grep lumina
