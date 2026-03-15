@@ -32,6 +32,7 @@ import java.util.concurrent.TimeUnit;
 import com.lumina.rpc.core.cluster.Cluster;
 import com.lumina.rpc.core.cluster.ClusterInvocation;
 import com.lumina.rpc.core.cluster.ClusterManager;
+import com.lumina.rpc.core.protection.ProtectionConfig;
 
 /**
  * RPC 客户端动态代理处理器
@@ -240,81 +241,65 @@ public class RpcClientHandler implements InvocationHandler {
     }
 
     /**
-     * 异步发送 RPC 请求
+     * 异步发送 RPC 请求（走集群容错策略）
      *
      * @param request RPC 请求
      * @param method  调用的方法
      * @return CompletableFuture 包装的结果
      */
     private CompletableFuture<Object> sendRequestAsync(RpcRequest request, Method method) {
-        CompletableFuture<Object> resultFuture = new CompletableFuture<>();
+        String serviceName = request.getInterfaceName();
 
         try {
-            String serviceName = request.getInterfaceName();
-
             // 服务发现
             List<ServiceInstance> instances = ServiceDiscovery.getServiceInstances(serviceName, version);
             if (instances.isEmpty()) {
                 instances = ServiceDiscovery.getServiceInstances(serviceName);
             }
             if (instances.isEmpty()) {
-                resultFuture.completeExceptionally(new NoProviderAvailableException(serviceName));
-                return resultFuture;
+                return CompletableFuture.failedFuture(new NoProviderAvailableException(serviceName));
             }
 
-            // 负载均衡
-            List<InetSocketAddress> addresses = new ArrayList<>();
-            for (ServiceInstance instance : instances) {
-                addresses.add(new InetSocketAddress(instance.getHost(), instance.getPort()));
-            }
-            InetSocketAddress targetAddress = loadBalancer.select(addresses, serviceName);
-            if (targetAddress == null) {
-                resultFuture.completeExceptionally(new NoProviderAvailableException(serviceName, "负载均衡器无法选择服务地址"));
-                return resultFuture;
-            }
+            // 获取动态配置
+            ProtectionConfig config = getProtectionConfig(serviceName);
+            long effectiveTimeout = config != null && config.getTimeout() > 0 ? config.getTimeout() : this.timeout;
+            int effectiveRetries = config != null && config.getRetries() > 0 ? config.getRetries() : this.retries;
+            String effectiveCluster = config != null && config.getClusterStrategy() != null ?
+                    config.getClusterStrategy() : this.cluster;
 
-            // 构建消息
-            RpcMessage message = new RpcMessage();
-            message.setMagicNumber(RpcMessage.MAGIC_NUMBER);
-            message.setVersion(RpcMessage.VERSION);
-            message.setSerializerType(serializer.getType());
-            message.setMessageType(RpcMessage.REQUEST);
-            message.setRequestId(request.getRequestId());
-            message.setBody(request);
+            // 使用集群策略的异步调用
+            Cluster clusterStrategy = ClusterManager.getInstance().getCluster(effectiveCluster);
 
-            // 注册异步回调
-            CompletableFuture<RpcResponse> responseFuture = new CompletableFuture<>();
-            pendingRequestManager.addPendingRequest(request.getRequestId(), responseFuture);
+            ClusterInvocation invocation = new ClusterInvocation(
+                    serviceName, version, request, method.getReturnType(),
+                    instances, loadBalancer, nettyClient, serializer, effectiveTimeout, effectiveRetries,
+                    enableCircuitBreaker, circuitBreakerThreshold, circuitBreakerTimeout,
+                    enableRateLimit, rateLimitPermits
+            );
 
-            // 发送请求
-            nettyClient.sendMessage(targetAddress, message);
+            logger.debug("[Async] Using cluster strategy: {} for service: {}", clusterStrategy.getName(), serviceName);
 
-            // 设置超时和回调
-            responseFuture.orTimeout(timeout, TimeUnit.MILLISECONDS)
-                    .whenComplete((response, ex) -> {
-                        pendingRequestManager.removePendingRequest(request.getRequestId());
+            // 调用集群策略的异步方法
+            CompletableFuture<Object> resultFuture = clusterStrategy.invokeAsync(invocation);
 
-                        if (ex != null) {
-                            resultFuture.completeExceptionally(ex);
-                        } else if (response == null) {
-                            resultFuture.completeExceptionally(new RuntimeException("RPC response is null"));
-                        } else if (!response.isSuccess()) {
-                            resultFuture.completeExceptionally(new RuntimeException("RPC call failed: " + response.getMessage()));
-                        } else {
-                            try {
-                                Object result = convertResultType(response.getData(), method);
-                                resultFuture.complete(result);
-                            } catch (Exception e) {
-                                resultFuture.completeExceptionally(e);
-                            }
-                        }
-                    });
+            // 处理结果类型转换
+            return resultFuture.thenApply(result -> convertResultType(result, method));
 
         } catch (Exception e) {
-            resultFuture.completeExceptionally(e);
+            return CompletableFuture.failedFuture(e);
         }
+    }
 
-        return resultFuture;
+    /**
+     * 获取动态保护配置
+     */
+    private ProtectionConfig getProtectionConfig(String serviceName) {
+        try {
+            return com.lumina.rpc.core.protection.ProtectionConfigClient.getInstance().getConfig(serviceName);
+        } catch (Exception e) {
+            logger.debug("Failed to get protection config for {}, using defaults", serviceName);
+            return null;
+        }
     }
 
     /**
@@ -322,8 +307,9 @@ public class RpcClientHandler implements InvocationHandler {
      *
      * 完整流程：
      * 1. 服务发现 - 从本地缓存获取可用服务实例列表
-     * 2. 集群容错 - 使用集群策略执行调用（Failover/Failfast/Failsafe/Forking）
-     * 3. 结果转换 - 类型转换兜底处理
+     * 2. 动态配置 - 优先使用控制平面配置
+     * 3. 集群容错 - 使用集群策略执行调用（Failover/Failfast/Failsafe/Forking）
+     * 4. 结果转换 - 类型转换兜底处理
      *
      * @param request RPC 请求
      * @param method  调用的方法（用于返回类型转换）
@@ -345,12 +331,22 @@ public class RpcClientHandler implements InvocationHandler {
             }
         }
 
-        // ========== 步骤2: 集群容错调用 ==========
-        Cluster clusterStrategy = ClusterManager.getInstance().getCluster(cluster);
+        // ========== 步骤2: 获取动态配置 ==========
+        ProtectionConfig config = getProtectionConfig(serviceName);
+        long effectiveTimeout = config != null && config.getTimeout() > 0 ? config.getTimeout() : this.timeout;
+        int effectiveRetries = config != null && config.getRetries() > 0 ? config.getRetries() : this.retries;
+        String effectiveCluster = config != null && config.getClusterStrategy() != null ?
+                config.getClusterStrategy() : this.cluster;
+
+        logger.debug("Dynamic config for {}: timeout={}, retries={}, cluster={}",
+                serviceName, effectiveTimeout, effectiveRetries, effectiveCluster);
+
+        // ========== 步骤3: 集群容错调用 ==========
+        Cluster clusterStrategy = ClusterManager.getInstance().getCluster(effectiveCluster);
 
         ClusterInvocation invocation = new ClusterInvocation(
                 serviceName, version, request, method.getReturnType(),
-                instances, loadBalancer, nettyClient, serializer, timeout, retries,
+                instances, loadBalancer, nettyClient, serializer, effectiveTimeout, effectiveRetries,
                 enableCircuitBreaker, circuitBreakerThreshold, circuitBreakerTimeout,
                 enableRateLimit, rateLimitPermits
         );
@@ -359,7 +355,7 @@ public class RpcClientHandler implements InvocationHandler {
 
         Object result = clusterStrategy.invoke(invocation);
 
-        // ========== 步骤3: 结果类型转换 ==========
+        // ========== 步骤4: 结果类型转换 ==========
         result = convertResultType(result, method);
 
         return result;

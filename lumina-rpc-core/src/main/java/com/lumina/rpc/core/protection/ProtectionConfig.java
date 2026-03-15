@@ -37,6 +37,9 @@ public class ProtectionConfig {
     /** 重试次数 */
     private int retries = 3;
 
+    /** 超时时间（毫秒），0 表示使用注解默认值 */
+    private long timeout = 0;
+
     public ProtectionConfig() {
     }
 
@@ -108,6 +111,14 @@ public class ProtectionConfig {
 
     public void setRetries(int retries) {
         this.retries = retries;
+    }
+
+    public long getTimeout() {
+        return timeout;
+    }
+
+    public void setTimeout(long timeout) {
+        this.timeout = timeout;
     }
 
     @Override

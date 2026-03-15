@@ -4,6 +4,7 @@ import com.lumina.rpc.core.discovery.ServiceInstance;
 
 import java.net.InetSocketAddress;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * 集群容错策略接口
@@ -25,11 +26,31 @@ public interface Cluster {
     String getName();
 
     /**
-     * 执行调用
+     * 执行同步调用
      *
      * @param invocation 调用上下文
      * @return 调用结果
      * @throws Exception 调用异常
      */
     Object invoke(ClusterInvocation invocation) throws Throwable;
+
+    /**
+     * 执行异步调用
+     *
+     * 异步调用同样走集群容错策略（熔断、限流、重试）
+     *
+     * @param invocation 调用上下文
+     * @return CompletableFuture 包装的调用结果
+     */
+    default CompletableFuture<Object> invokeAsync(ClusterInvocation invocation) {
+        // 默认实现：用线程池包装同步调用
+        CompletableFuture<Object> future = new CompletableFuture<>();
+        try {
+            Object result = invoke(invocation);
+            future.complete(result);
+        } catch (Throwable e) {
+            future.completeExceptionally(e);
+        }
+        return future;
+    }
 }

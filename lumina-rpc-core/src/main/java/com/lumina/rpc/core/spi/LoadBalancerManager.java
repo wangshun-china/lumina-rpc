@@ -22,8 +22,12 @@ public class LoadBalancerManager {
     static {
         // 加载 SPI 实现的负载均衡器
         loadLoadBalancers();
-        // 注册默认的轮询负载均衡器
+        // 注册内置负载均衡器
         registerLoadBalancer(new RoundRobinLoadBalancer());
+        registerLoadBalancer(new RandomLoadBalancer());
+        registerLoadBalancer(new WeightedRoundRobinLoadBalancer());
+        registerLoadBalancer(new LeastActiveLoadBalancer());
+        registerLoadBalancer(new ConsistentHashLoadBalancer());
     }
 
     /**

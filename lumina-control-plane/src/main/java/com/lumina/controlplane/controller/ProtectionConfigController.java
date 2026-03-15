@@ -101,6 +101,24 @@ public class ProtectionConfigController {
     }
 
     /**
+     * 更新集群配置（timeout、retries、clusterStrategy）
+     */
+    @PutMapping("/configs/{serviceName}/cluster")
+    public ResponseEntity<ProtectionConfigEntity> updateClusterConfig(
+            @PathVariable String serviceName,
+            @RequestBody Map<String, Object> params) {
+
+        logger.info("Updating cluster config for service: {}", serviceName);
+
+        Long timeoutMs = params.get("timeoutMs") != null ? ((Number) params.get("timeoutMs")).longValue() : null;
+        Integer retries = params.get("retries") != null ? ((Number) params.get("retries")).intValue() : null;
+        String clusterStrategy = (String) params.get("clusterStrategy");
+
+        ProtectionConfigEntity config = service.updateClusterConfig(serviceName, timeoutMs, retries, clusterStrategy);
+        return ResponseEntity.ok(config);
+    }
+
+    /**
      * 删除保护配置
      */
     @DeleteMapping("/configs/{serviceName}")

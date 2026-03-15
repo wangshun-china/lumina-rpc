@@ -25,6 +25,9 @@ public class ServiceInstance {
     /** 预热时间（毫秒），默认 60 秒 */
     private long warmupPeriod = 60000;
 
+    /** 静态权重，默认 100（用于加权负载均衡） */
+    private int weight = 100;
+
     public ServiceInstance() {
     }
 
@@ -154,6 +157,23 @@ public class ServiceInstance {
 
     public void setWarmupPeriod(long warmupPeriod) {
         this.warmupPeriod = warmupPeriod;
+    }
+
+    public int getWeight() {
+        return weight;
+    }
+
+    public void setWeight(int weight) {
+        this.weight = weight;
+    }
+
+    /**
+     * 获取有效权重（静态权重 × 预热权重）
+     *
+     * @return 有效权重
+     */
+    public int getEffectiveWeight() {
+        return (int) (weight * getWarmupWeight());
     }
 
     /**

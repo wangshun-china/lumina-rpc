@@ -37,12 +37,27 @@
             Mock 规则
           </RouterLink>
           <RouterLink
+            to="/protection"
+            class="px-4 py-2 rounded-lg text-sm font-medium transition-colors hover:bg-slate-800"
+            :class="route.path === '/protection' ? 'bg-slate-800 text-cyan-400' : 'text-slate-400'"
+          >
+            服务保护
+          </RouterLink>
+          <RouterLink
             to="/consumer-ops"
             class="px-4 py-2 rounded-lg text-sm font-medium transition-colors hover:bg-slate-800 flex items-center space-x-1"
             :class="route.path === '/consumer-ops' ? 'bg-slate-800 text-cyan-400' : 'text-slate-400'"
           >
             <span>📊</span>
             <span>消费者操作台</span>
+          </RouterLink>
+          <RouterLink
+            to="/traces"
+            class="px-4 py-2 rounded-lg text-sm font-medium transition-colors hover:bg-slate-800 flex items-center space-x-1"
+            :class="route.path === '/traces' ? 'bg-slate-800 text-cyan-400' : 'text-slate-400'"
+          >
+            <span>🔗</span>
+            <span>链路追踪</span>
           </RouterLink>
         </nav>
 

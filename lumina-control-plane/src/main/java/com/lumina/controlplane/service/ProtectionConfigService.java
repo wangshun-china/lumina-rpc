@@ -193,6 +193,34 @@ public class ProtectionConfigService {
     }
 
     /**
+     * 更新集群配置（timeout、retries、clusterStrategy）
+     */
+    @Transactional
+    public ProtectionConfigEntity updateClusterConfig(
+            String serviceName,
+            Long timeoutMs,
+            Integer retries,
+            String clusterStrategy) {
+
+        ProtectionConfigEntity config = getOrCreateDefault(serviceName);
+
+        if (timeoutMs != null) {
+            config.setTimeoutMs(timeoutMs);
+        }
+        if (retries != null) {
+            config.setRetries(retries);
+        }
+        if (clusterStrategy != null && !clusterStrategy.isEmpty()) {
+            config.setClusterStrategy(clusterStrategy);
+        }
+
+        logger.info("Updated cluster config for {}: timeout={}ms, retries={}, strategy={}",
+                serviceName, timeoutMs, retries, clusterStrategy);
+
+        return save(config);
+    }
+
+    /**
      * 获取全局版本号（用于检测配置变更）
      */
     public long getGlobalVersion() {

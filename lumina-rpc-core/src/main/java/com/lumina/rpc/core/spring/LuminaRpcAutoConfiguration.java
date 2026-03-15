@@ -5,6 +5,7 @@ import com.lumina.rpc.core.mock.MockRuleSubscriptionClient;
 import com.lumina.rpc.core.protection.ProtectionConfigClient;
 import com.lumina.rpc.core.proxy.ProxyFactory;
 import com.lumina.rpc.core.stats.RequestStatsReporter;
+import com.lumina.rpc.protocol.pool.ChannelPoolManager;
 import com.lumina.rpc.protocol.spi.Serializer;
 import com.lumina.rpc.protocol.spi.SerializerManager;
 import com.lumina.rpc.protocol.transport.NettyClient;
@@ -186,7 +187,15 @@ public class LuminaRpcAutoConfiguration {
     @ConditionalOnMissingBean(NettyClient.class)
     public NettyClient nettyClient(Serializer serializer) {
         log.info("🔧 [Lumina-RPC] Registering NettyClient Bean for RPC client connections");
-        return new NettyClient(serializer);
+
+        NettyClient client = new NettyClient(serializer);
+
+        // 初始化连接池管理器，绑定 ChannelFactory
+        ChannelPoolManager poolManager = ChannelPoolManager.getInstance();
+        poolManager.setChannelFactory(client);
+        log.info("🔌 [Lumina-RPC] Connection pool initialized (min=2, max=10 per address)");
+
+        return client;
     }
 
     /**

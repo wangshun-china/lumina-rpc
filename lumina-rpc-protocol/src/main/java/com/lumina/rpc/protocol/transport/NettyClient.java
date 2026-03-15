@@ -4,6 +4,7 @@ import com.lumina.rpc.protocol.codec.RpcDecoder;
 import com.lumina.rpc.protocol.codec.RpcEncoder;
 import com.lumina.rpc.protocol.RpcMessage;
 import com.lumina.rpc.protocol.spi.Serializer;
+import com.lumina.rpc.protocol.pool.ChannelPoolManager;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.*;
 import io.netty.channel.nio.NioEventLoopGroup;
@@ -22,16 +23,18 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Netty RPC 客户端
+ *
  * 支持连接池管理多个服务端连接
  *
  * 防御性编程特性：
  * 1. 断线自动重连：Channel 失效时自动剔除并重连
  * 2. 优雅停机：提供 shutdown() 方法供外部调用
  * 3. 连接健康检查：获取连接时验证 isActive() 状态
+ * 4. 连接池集成：通过 ChannelPoolManager 实现真正的连接复用
  *
  * 注意：此类不依赖任何 Spring 组件，可独立使用
  */
-public class NettyClient {
+public class NettyClient implements ChannelPoolManager.ChannelFactory {
 
     private static final Logger logger = LoggerFactory.getLogger(NettyClient.class);
 
@@ -363,5 +366,59 @@ public class NettyClient {
      */
     public int getConnectionPoolSize() {
         return channelPool.size();
+    }
+
+    // ==================== ChannelFactory 接口实现 ====================
+
+    /**
+     * 创建新的 Channel（供 ChannelPoolManager 调用）
+     *
+     * 此方法是 ChannelFactory 接口的实现，用于连接池动态扩容时创建新连接
+     *
+     * @param address 目标地址
+     * @return 新创建的 Channel
+     */
+    @Override
+    public Channel createChannel(InetSocketAddress address) {
+        if (shutdown.get()) {
+            throw new IllegalStateException("NettyClient is shutting down");
+        }
+
+        try {
+            CompletableFuture<Channel> future = new CompletableFuture<>();
+            String addressKey = address.getHostString() + ":" + address.getPort();
+
+            bootstrap.connect(address).addListener((ChannelFutureListener) channelFuture -> {
+                if (channelFuture.isSuccess()) {
+                    Channel channel = channelFuture.channel();
+
+                    // 添加连接关闭监听器
+                    channel.closeFuture().addListener(f -> {
+                        channelPool.remove(addressKey);
+                        connectionStatus.remove(addressKey);
+                        logger.info("Connection closed: {}", addressKey);
+                    });
+
+                    logger.debug("📦 Created new channel for pool: {}", addressKey);
+                    future.complete(channel);
+                } else {
+                    logger.warn("Failed to create channel for {}: {}", addressKey, channelFuture.cause().getMessage());
+                    future.completeExceptionally(channelFuture.cause());
+                }
+            });
+
+            return future.get(5, TimeUnit.SECONDS);
+
+        } catch (Exception e) {
+            logger.error("Exception while creating channel for {}", address, e);
+            return null;
+        }
+    }
+
+    /**
+     * 获取 EventLoopGroup（供外部使用）
+     */
+    public EventLoopGroup getEventLoopGroup() {
+        return eventLoopGroup;
     }
 }

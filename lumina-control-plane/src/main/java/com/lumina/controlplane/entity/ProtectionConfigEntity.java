@@ -75,6 +75,10 @@ public class ProtectionConfigEntity {
     @Column(name = "retries")
     private Integer retries = 3;
 
+    /** 超时时间（毫秒），0 表示使用 Consumer 端默认值 */
+    @Column(name = "timeout_ms")
+    private Long timeoutMs = 0L;
+
     // ==================== 元数据 ====================
 
     /** 配置版本号（用于乐观锁） */
@@ -206,6 +210,14 @@ public class ProtectionConfigEntity {
 
     public void setRetries(Integer retries) {
         this.retries = retries;
+    }
+
+    public Long getTimeoutMs() {
+        return timeoutMs;
+    }
+
+    public void setTimeoutMs(Long timeoutMs) {
+        this.timeoutMs = timeoutMs;
     }
 
     public Long getVersion() {

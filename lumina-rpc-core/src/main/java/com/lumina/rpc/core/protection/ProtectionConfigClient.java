@@ -244,6 +244,7 @@ public class ProtectionConfigClient {
         config.setRateLimiterPermits(((Number) map.getOrDefault("rateLimiterPermits", 100)).intValue());
         config.setClusterStrategy((String) map.getOrDefault("clusterStrategy", "failover"));
         config.setRetries(((Number) map.getOrDefault("retries", 3)).intValue());
+        config.setTimeout(((Number) map.getOrDefault("timeout", 0)).longValue());
         return config;
     }
 

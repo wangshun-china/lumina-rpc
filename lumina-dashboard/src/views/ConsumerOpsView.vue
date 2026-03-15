@@ -110,14 +110,14 @@
             </div>
           </div>
 
-          <!-- 熔断器/限流器状态卡片 -->
+          <!-- 熔断器/限流器状态卡片（只读展示） -->
           <div v-if="testForm.serviceName" class="mb-4 grid grid-cols-2 gap-3">
-            <!-- 熔断器卡片 -->
-            <div class="p-3 bg-slate-800/50 rounded-lg border border-slate-700 cursor-pointer hover:border-cyan-600 transition-colors" @click="openCircuitBreakerDialog">
+            <!-- 熔断器状态 -->
+            <div class="p-3 bg-slate-800/50 rounded-lg border border-slate-700">
               <div class="flex items-center justify-between mb-2">
                 <span class="text-xs text-slate-400">⚡ 熔断器</span>
-                <span :class="currentServiceProtection?.circuitBreakerEnabled ? 'text-amber-400' : 'text-green-400'" class="text-xs font-bold">
-                  {{ currentServiceProtection?.circuitBreakerEnabled ? 'OPENING' : 'CLOSED' }}
+                <span :class="currentServiceProtection?.circuitBreakerEnabled ? 'text-amber-400' : 'text-slate-500'" class="text-xs font-bold">
+                  {{ currentServiceProtection?.circuitBreakerEnabled ? '启用' : '未启用' }}
                 </span>
               </div>
               <div class="text-xs text-slate-500">
@@ -128,14 +128,16 @@
                   未配置熔断器
                 </template>
               </div>
-              <div class="text-xs text-cyan-400 mt-1">点击配置 →</div>
+              <router-link to="/protection" class="text-xs text-cyan-400 hover:text-cyan-300 mt-1 inline-block">
+                前往服务保护配置 →
+              </router-link>
             </div>
-            <!-- 限流器卡片 -->
-            <div class="p-3 bg-slate-800/50 rounded-lg border border-slate-700 cursor-pointer hover:border-cyan-600 transition-colors" @click="openRateLimiterDialog">
+            <!-- 限流器状态 -->
+            <div class="p-3 bg-slate-800/50 rounded-lg border border-slate-700">
               <div class="flex items-center justify-between mb-2">
                 <span class="text-xs text-slate-400">🚦 限流器</span>
-                <span :class="currentServiceProtection?.rateLimiterEnabled ? 'text-amber-400' : 'text-green-400'" class="text-xs font-bold">
-                  {{ currentServiceProtection?.rateLimiterEnabled ? 'OPENING' : 'CLOSED' }}
+                <span :class="currentServiceProtection?.rateLimiterEnabled ? 'text-amber-400' : 'text-slate-500'" class="text-xs font-bold">
+                  {{ currentServiceProtection?.rateLimiterEnabled ? '启用' : '未启用' }}
                 </span>
               </div>
               <div class="text-xs text-slate-500">
@@ -143,7 +145,6 @@
                   QPS {{ currentServiceProtection.rateLimiterPermits }}
                   <template v-if="rateLimiterStats.totalRequests > 0">
                     <span class="text-cyan-400 ml-1">| 通过 {{ rateLimiterStats.passed }} / 拒绝 {{ rateLimiterStats.rejected }}</span>
-                    <span class="text-amber-400 ml-1">负载率 {{ rateLimiterLoadRate }}%</span>
                   </template>
                   <template v-else>
                     <span class="text-slate-600 ml-1">| 暂无请求</span>
@@ -153,61 +154,11 @@
                   未配置限流器
                 </template>
               </div>
-              <div class="text-xs text-cyan-400 mt-1">点击配置 →</div>
+              <router-link to="/protection" class="text-xs text-cyan-400 hover:text-cyan-300 mt-1 inline-block">
+                前往服务保护配置 →
+              </router-link>
             </div>
           </div>
-
-          <!-- 熔断器配置对话框 -->
-          <el-dialog v-model="showCircuitBreakerDialog" title="⚡ 熔断器配置" width="500px" class="protection-dialog">
-            <div class="space-y-4">
-              <div class="p-4 bg-slate-800/50 rounded-lg border border-slate-700">
-                <div class="flex items-center justify-between mb-3">
-                  <span class="text-sm font-medium text-white">启用熔断器</span>
-                  <el-switch v-model="circuitBreakerForm.enabled" />
-                </div>
-                <div class="grid grid-cols-2 gap-3">
-                  <div>
-                    <label class="text-xs text-slate-500 mb-1 block">错误率阈值 (%)</label>
-                    <el-input-number v-model="circuitBreakerForm.threshold" :min="10" :max="100" size="small" class="w-full" />
-                  </div>
-                  <div>
-                    <label class="text-xs text-slate-500 mb-1 block">恢复时间 (ms)</label>
-                    <el-input-number v-model="circuitBreakerForm.timeout" :min="5000" :max="300000" :step="5000" size="small" class="w-full" />
-                  </div>
-                </div>
-                <div class="mt-3 text-xs text-slate-500">
-                  💡 当最近100次请求的错误率超过阈值时触发熔断，熔断后等待恢复时间后进入半开状态
-                </div>
-              </div>
-            </div>
-            <template #footer>
-              <el-button @click="showCircuitBreakerDialog = false">取消</el-button>
-              <el-button type="primary" @click="saveCircuitBreakerConfig" :loading="savingCircuitBreaker">保存</el-button>
-            </template>
-          </el-dialog>
-
-          <!-- 限流器配置对话框 -->
-          <el-dialog v-model="showRateLimiterDialog" title="🚦 限流器配置" width="500px" class="protection-dialog">
-            <div class="space-y-4">
-              <div class="p-4 bg-slate-800/50 rounded-lg border border-slate-700">
-                <div class="flex items-center justify-between mb-3">
-                  <span class="text-sm font-medium text-white">启用限流器</span>
-                  <el-switch v-model="rateLimiterForm.enabled" />
-                </div>
-                <div>
-                  <label class="text-xs text-slate-500 mb-1 block">每秒请求数 (QPS)</label>
-                  <el-input-number v-model="rateLimiterForm.permits" :min="1" :max="10000" :step="1" size="small" class="w-full" />
-                </div>
-                <div class="mt-3 text-xs text-slate-500">
-                  💡 使用令牌桶算法限流，当QPS超过阈值时拒绝请求
-                </div>
-              </div>
-            </div>
-            <template #footer>
-              <el-button @click="showRateLimiterDialog = false">取消</el-button>
-              <el-button type="primary" @click="saveRateLimiterConfig" :loading="savingRateLimiter">保存</el-button>
-            </template>
-          </el-dialog>
 
           <div v-if="testParams.length > 0">
             <label class="block text-sm font-medium text-slate-300 mb-3">
@@ -419,34 +370,11 @@ const testForm = ref({
 // 当前服务的保护配置
 const currentServiceProtection = ref<any>(null)
 
-// 熔断器配置对话框
-const showCircuitBreakerDialog = ref(false)
-const savingCircuitBreaker = ref(false)
-const circuitBreakerForm = ref({
-  enabled: false,
-  threshold: 50,
-  timeout: 30000
-})
-
-// 限流器配置对话框
-const showRateLimiterDialog = ref(false)
-const savingRateLimiter = ref(false)
-const rateLimiterForm = ref({
-  enabled: false,
-  permits: 100
-})
-
 // 限流器统计数据
 const rateLimiterStats = ref({
   passed: 0,
   rejected: 0,
   totalRequests: 0
-})
-
-// 限流器负载率（计算得出）
-const rateLimiterLoadRate = computed(() => {
-  if (rateLimiterStats.value.totalRequests === 0) return 0
-  return Math.round((rateLimiterStats.value.passed / rateLimiterStats.value.totalRequests) * 100)
 })
 
 let refreshInterval: ReturnType<typeof setInterval> | null = null
@@ -580,16 +508,6 @@ const loadCurrentServiceProtection = async () => {
     const response = await axios.get(`/api/v1/protection/configs/${encodeURIComponent(testForm.value.serviceName)}`)
     if (response.data) {
       currentServiceProtection.value = response.data
-      // 更新表单数据
-      circuitBreakerForm.value = {
-        enabled: response.data.circuitBreakerEnabled || false,
-        threshold: response.data.circuitBreakerThreshold || 50,
-        timeout: response.data.circuitBreakerTimeout || 30000
-      }
-      rateLimiterForm.value = {
-        enabled: response.data.rateLimiterEnabled || false,
-        permits: response.data.rateLimiterPermits || 100
-      }
       // 从后端获取统计数据
       rateLimiterStats.value = {
         passed: response.data.rateLimiterPassed || 0,
@@ -600,8 +518,6 @@ const loadCurrentServiceProtection = async () => {
   } catch (error) {
     // 配置不存在，使用默认值
     currentServiceProtection.value = null
-    circuitBreakerForm.value = { enabled: false, threshold: 50, timeout: 30000 }
-    rateLimiterForm.value = { enabled: false, permits: 100 }
     rateLimiterStats.value = { passed: 0, rejected: 0, totalRequests: 0 }
   }
 }
@@ -852,73 +768,6 @@ const startAutoRefresh = () => {
       }
     }
   }, 1000)
-}
-
-// 打开熔断器配置弹窗
-const openCircuitBreakerDialog = () => {
-  if (!testForm.value.serviceName) {
-    ElMessage.warning('请先选择服务')
-    return
-  }
-  showCircuitBreakerDialog.value = true
-}
-
-// 打开限流器配置弹窗
-const openRateLimiterDialog = () => {
-  if (!testForm.value.serviceName) {
-    ElMessage.warning('请先选择服务')
-    return
-  }
-  showRateLimiterDialog.value = true
-}
-
-// 保存熔断器配置
-const saveCircuitBreakerConfig = async () => {
-  if (!testForm.value.serviceName) {
-    ElMessage.warning('请先选择服务')
-    return
-  }
-
-  savingCircuitBreaker.value = true
-  try {
-    await axios.put(`/api/v1/protection/configs/${encodeURIComponent(testForm.value.serviceName)}/circuit-breaker`, {
-      enabled: circuitBreakerForm.value.enabled,
-      threshold: circuitBreakerForm.value.threshold,
-      timeout: circuitBreakerForm.value.timeout
-    })
-
-    ElMessage.success('熔断器配置已保存')
-    showCircuitBreakerDialog.value = false
-    await loadCurrentServiceProtection()
-  } catch (error: any) {
-    ElMessage.error('保存失败: ' + (error.response?.data?.message || error.message))
-  } finally {
-    savingCircuitBreaker.value = false
-  }
-}
-
-// 保存限流器配置
-const saveRateLimiterConfig = async () => {
-  if (!testForm.value.serviceName) {
-    ElMessage.warning('请先选择服务')
-    return
-  }
-
-  savingRateLimiter.value = true
-  try {
-    await axios.put(`/api/v1/protection/configs/${encodeURIComponent(testForm.value.serviceName)}/rate-limiter`, {
-      enabled: rateLimiterForm.value.enabled,
-      permits: rateLimiterForm.value.permits
-    })
-
-    ElMessage.success('限流器配置已保存')
-    showRateLimiterDialog.value = false
-    await loadCurrentServiceProtection()
-  } catch (error: any) {
-    ElMessage.error('保存失败: ' + (error.response?.data?.message || error.message))
-  } finally {
-    savingRateLimiter.value = false
-  }
 }
 
 onMounted(async () => {

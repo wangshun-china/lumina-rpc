@@ -7,6 +7,8 @@ const TopologyView = () => import('../views/TopologyView.vue')
 const ServicesView = () => import('../views/ServicesView.vue')
 const MockRulesView = () => import('../views/MockRulesView.vue')
 const ConsumerOpsView = () => import('../views/ConsumerOpsView.vue')
+const ProtectionConfigView = () => import('../views/ProtectionConfigView.vue')
+const TraceView = () => import('../views/TraceView.vue')
 
 const routes: RouteRecordRaw[] = [
   {
@@ -47,6 +49,22 @@ const routes: RouteRecordRaw[] = [
     component: ConsumerOpsView,
     meta: {
       title: 'Lumina-RPC - 消费者操作台',
+    },
+  },
+  {
+    path: '/protection',
+    name: 'protection',
+    component: ProtectionConfigView,
+    meta: {
+      title: 'Lumina-RPC - 服务保护配置',
+    },
+  },
+  {
+    path: '/traces',
+    name: 'traces',
+    component: TraceView,
+    meta: {
+      title: 'Lumina-RPC - 链路追踪',
     },
   },
   {
