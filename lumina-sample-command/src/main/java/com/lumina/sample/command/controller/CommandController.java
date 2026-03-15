@@ -5,6 +5,7 @@ import com.lumina.sample.command.service.RadarServiceClient;
 import com.lumina.sample.command.service.TelemetryService;
 import com.lumina.sample.engine.service.EngineService;
 import com.lumina.sample.radar.service.RadarService;
+import com.lumina.rpc.protocol.trace.TraceContext;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.DefaultParameterNameDiscoverer;
@@ -224,22 +225,38 @@ public class CommandController {
             Object response = method.invoke(proxyObject, args);
 
             long duration = System.currentTimeMillis() - startTime;
-            log.info("✅ [Proxy] 调用成功 - {}.{} 耗时: {}ms", serviceName, methodName, duration);
+
+            // 获取 Trace ID（必须在 clear 之前获取）
+            String traceId = TraceContext.getTraceId();
+
+            log.info("✅ [Proxy] 调用成功 - {}.{} 耗时: {}ms, TraceId: {}", serviceName, methodName, duration, traceId);
 
             result.put("success", true);
             result.put("data", response);
             result.put("duration", duration);
+            result.put("traceId", traceId);
+
+            // 清理 TraceContext（在获取 traceId 之后）
+            TraceContext.clear();
 
             return ResponseEntity.ok(result);
 
         } catch (Exception e) {
             long duration = System.currentTimeMillis() - startTime;
-            log.error("❌ [Proxy] 调用失败 - {}.{} 耗时: {}ms 错误: {}",
-                    serviceName, methodName, duration, e.getMessage(), e);
+
+            // 获取 Trace ID
+            String traceId = TraceContext.getTraceId();
+
+            log.error("❌ [Proxy] 调用失败 - {}.{} 耗时: {}ms TraceId: {} 错误: {}",
+                    serviceName, methodName, duration, traceId, e.getMessage(), e);
 
             result.put("success", false);
             result.put("error", e.getMessage());
             result.put("duration", duration);
+            result.put("traceId", traceId);
+
+            // 清理 TraceContext
+            TraceContext.clear();
 
             return ResponseEntity.ok(result);
         }

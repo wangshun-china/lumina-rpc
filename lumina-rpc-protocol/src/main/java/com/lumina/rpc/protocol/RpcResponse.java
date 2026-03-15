@@ -12,6 +12,9 @@ public class RpcResponse implements Serializable {
     // 请求ID，用于匹配请求
     private long requestId;
 
+    // 链路追踪ID
+    private String traceId;
+
     // 响应码
     private int code;
 
@@ -38,9 +41,27 @@ public class RpcResponse implements Serializable {
         return response;
     }
 
+    public static RpcResponse success(long requestId, String traceId, Object data) {
+        RpcResponse response = new RpcResponse();
+        response.setRequestId(requestId);
+        response.setTraceId(traceId);
+        response.setCode(SUCCESS);
+        response.setData(data);
+        return response;
+    }
+
     public static RpcResponse error(long requestId, String message) {
         RpcResponse response = new RpcResponse();
         response.setRequestId(requestId);
+        response.setCode(ERROR);
+        response.setMessage(message);
+        return response;
+    }
+
+    public static RpcResponse error(long requestId, String traceId, String message) {
+        RpcResponse response = new RpcResponse();
+        response.setRequestId(requestId);
+        response.setTraceId(traceId);
         response.setCode(ERROR);
         response.setMessage(message);
         return response;
@@ -52,6 +73,14 @@ public class RpcResponse implements Serializable {
 
     public void setRequestId(long requestId) {
         this.requestId = requestId;
+    }
+
+    public String getTraceId() {
+        return traceId;
+    }
+
+    public void setTraceId(String traceId) {
+        this.traceId = traceId;
     }
 
     public int getCode() {
@@ -86,6 +115,7 @@ public class RpcResponse implements Serializable {
     public String toString() {
         return "RpcResponse{" +
                 "requestId=" + requestId +
+                ", traceId='" + traceId + '\'' +
                 ", code=" + code +
                 ", message='" + message + '\'' +
                 ", data=" + data +

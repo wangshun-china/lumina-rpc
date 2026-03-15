@@ -10,7 +10,7 @@
           </div>
           <div>
             <h1 class="text-xl font-bold text-white">Lumina-RPC</h1>
-            <p class="text-xs text-slate-400">面向可观测性的企业级 RPC 框架</p>
+            <p class="text-xs text-slate-400">面向可观测性的轻量 RPC 框架</p>
           </div>
         </div>
 
@@ -21,13 +21,6 @@
             :class="route.path === '/' ? 'bg-slate-800 text-cyan-400' : 'text-slate-400'"
           >
             大盘看板
-          </RouterLink>
-          <RouterLink
-            to="/topology"
-            class="px-4 py-2 rounded-lg text-sm font-medium transition-colors hover:bg-slate-800"
-            :class="route.path === '/topology' ? 'bg-slate-800 text-cyan-400' : 'text-slate-400'"
-          >
-            拓扑视图
           </RouterLink>
           <RouterLink
             to="/services"

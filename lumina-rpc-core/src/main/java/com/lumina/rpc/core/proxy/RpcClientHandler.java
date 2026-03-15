@@ -3,6 +3,7 @@ package com.lumina.rpc.core.proxy;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lumina.rpc.protocol.common.PendingRequestManager;
 import com.lumina.rpc.protocol.common.RequestIdGenerator;
+import com.lumina.rpc.protocol.trace.TraceContext;
 import com.lumina.rpc.core.discovery.ServiceDiscovery;
 import com.lumina.rpc.core.discovery.ServiceInstance;
 import com.lumina.rpc.core.exception.NoProviderAvailableException;
@@ -18,6 +19,7 @@ import com.lumina.rpc.protocol.spi.Serializer;
 import com.lumina.rpc.protocol.transport.NettyClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 
 import java.net.InetSocketAddress;
 import java.lang.reflect.InvocationHandler;
@@ -26,6 +28,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+
+import com.lumina.rpc.core.cluster.Cluster;
+import com.lumina.rpc.core.cluster.ClusterInvocation;
+import com.lumina.rpc.core.cluster.ClusterManager;
 
 /**
  * RPC 客户端动态代理处理器
@@ -50,6 +56,30 @@ public class RpcClientHandler implements InvocationHandler {
     // 超时时间（毫秒）
     private final long timeout;
 
+    // 是否异步调用
+    private final boolean async;
+
+    // 集群策略
+    private final String cluster;
+
+    // 重试次数
+    private final int retries;
+
+    // 熔断器开关
+    private final boolean enableCircuitBreaker;
+
+    // 熔断器错误率阈值
+    private final int circuitBreakerThreshold;
+
+    // 熔断器恢复时间
+    private final long circuitBreakerTimeout;
+
+    // 限流器开关
+    private final boolean enableRateLimit;
+
+    // 限流阈值
+    private final int rateLimitPermits;
+
     // 序列化器
     private final Serializer serializer;
 
@@ -73,9 +103,40 @@ public class RpcClientHandler implements InvocationHandler {
 
     public RpcClientHandler(Class<?> interfaceClass, String version, long timeout,
                             Serializer serializer, NettyClient nettyClient) {
+        this(interfaceClass, version, timeout, false, "failover", 3, serializer, nettyClient,
+                true, 50, 30000, false, 100);
+    }
+
+    public RpcClientHandler(Class<?> interfaceClass, String version, long timeout, boolean async,
+                            Serializer serializer, NettyClient nettyClient) {
+        this(interfaceClass, version, timeout, async, "failover", 3, serializer, nettyClient,
+                true, 50, 30000, false, 100);
+    }
+
+    public RpcClientHandler(Class<?> interfaceClass, String version, long timeout, boolean async,
+                            String cluster, int retries, Serializer serializer, NettyClient nettyClient) {
+        this(interfaceClass, version, timeout, async, cluster, retries, serializer, nettyClient,
+                true, 50, 30000, false, 100);
+    }
+
+    /**
+     * 完整构造函数（包含熔断器和限流器配置）
+     */
+    public RpcClientHandler(Class<?> interfaceClass, String version, long timeout, boolean async,
+                            String cluster, int retries, Serializer serializer, NettyClient nettyClient,
+                            boolean enableCircuitBreaker, int circuitBreakerThreshold, long circuitBreakerTimeout,
+                            boolean enableRateLimit, int rateLimitPermits) {
         this.interfaceClass = interfaceClass;
         this.version = version != null ? version : "";
         this.timeout = timeout > 0 ? timeout : 5000;
+        this.async = async;
+        this.cluster = cluster != null && !cluster.isEmpty() ? cluster : "failover";
+        this.retries = retries > 0 ? retries : 3;
+        this.enableCircuitBreaker = enableCircuitBreaker;
+        this.circuitBreakerThreshold = circuitBreakerThreshold;
+        this.circuitBreakerTimeout = circuitBreakerTimeout;
+        this.enableRateLimit = enableRateLimit;
+        this.rateLimitPermits = rateLimitPermits;
         this.serializer = serializer;
         this.nettyClient = nettyClient;
         this.loadBalancer = LoadBalancerManager.getDefaultLoadBalancer();
@@ -116,8 +177,20 @@ public class RpcClientHandler implements InvocationHandler {
         // 构建 RpcRequest
         RpcRequest request = buildRpcRequest(method, args);
 
-        // 发送请求并等待响应
+        // 异步调用支持
+        if (async || isAsyncReturnType(method)) {
+            return sendRequestAsync(request, method);
+        }
+
+        // 同步调用
         return sendRequest(request, method);
+    }
+
+    /**
+     * 检查返回类型是否为 CompletableFuture
+     */
+    private boolean isAsyncReturnType(Method method) {
+        return CompletableFuture.class.isAssignableFrom(method.getReturnType());
     }
 
     /**
@@ -150,7 +223,98 @@ public class RpcClientHandler implements InvocationHandler {
         request.setParameterTypes(method.getParameterTypes());
         request.setParameters(args != null ? args : new Object[0]);
         request.setVersion(version);
+
+        // 设置 Trace ID（如果当前上下文中没有则生成新的）
+        String traceId = TraceContext.getTraceId();
+        if (traceId == null) {
+            traceId = TraceContext.generateTraceId();
+            TraceContext.setTraceId(traceId);
+        }
+        request.setTraceId(traceId);
+
+        // 设置 MDC 以便日志自动包含 Trace ID
+        MDC.put("traceId", traceId);
+
+        logger.debug("[Trace:{}] Building request: {}.{}", traceId, interfaceClass.getSimpleName(), method.getName());
         return request;
+    }
+
+    /**
+     * 异步发送 RPC 请求
+     *
+     * @param request RPC 请求
+     * @param method  调用的方法
+     * @return CompletableFuture 包装的结果
+     */
+    private CompletableFuture<Object> sendRequestAsync(RpcRequest request, Method method) {
+        CompletableFuture<Object> resultFuture = new CompletableFuture<>();
+
+        try {
+            String serviceName = request.getInterfaceName();
+
+            // 服务发现
+            List<ServiceInstance> instances = ServiceDiscovery.getServiceInstances(serviceName, version);
+            if (instances.isEmpty()) {
+                instances = ServiceDiscovery.getServiceInstances(serviceName);
+            }
+            if (instances.isEmpty()) {
+                resultFuture.completeExceptionally(new NoProviderAvailableException(serviceName));
+                return resultFuture;
+            }
+
+            // 负载均衡
+            List<InetSocketAddress> addresses = new ArrayList<>();
+            for (ServiceInstance instance : instances) {
+                addresses.add(new InetSocketAddress(instance.getHost(), instance.getPort()));
+            }
+            InetSocketAddress targetAddress = loadBalancer.select(addresses, serviceName);
+            if (targetAddress == null) {
+                resultFuture.completeExceptionally(new NoProviderAvailableException(serviceName, "负载均衡器无法选择服务地址"));
+                return resultFuture;
+            }
+
+            // 构建消息
+            RpcMessage message = new RpcMessage();
+            message.setMagicNumber(RpcMessage.MAGIC_NUMBER);
+            message.setVersion(RpcMessage.VERSION);
+            message.setSerializerType(serializer.getType());
+            message.setMessageType(RpcMessage.REQUEST);
+            message.setRequestId(request.getRequestId());
+            message.setBody(request);
+
+            // 注册异步回调
+            CompletableFuture<RpcResponse> responseFuture = new CompletableFuture<>();
+            pendingRequestManager.addPendingRequest(request.getRequestId(), responseFuture);
+
+            // 发送请求
+            nettyClient.sendMessage(targetAddress, message);
+
+            // 设置超时和回调
+            responseFuture.orTimeout(timeout, TimeUnit.MILLISECONDS)
+                    .whenComplete((response, ex) -> {
+                        pendingRequestManager.removePendingRequest(request.getRequestId());
+
+                        if (ex != null) {
+                            resultFuture.completeExceptionally(ex);
+                        } else if (response == null) {
+                            resultFuture.completeExceptionally(new RuntimeException("RPC response is null"));
+                        } else if (!response.isSuccess()) {
+                            resultFuture.completeExceptionally(new RuntimeException("RPC call failed: " + response.getMessage()));
+                        } else {
+                            try {
+                                Object result = convertResultType(response.getData(), method);
+                                resultFuture.complete(result);
+                            } catch (Exception e) {
+                                resultFuture.completeExceptionally(e);
+                            }
+                        }
+                    });
+
+        } catch (Exception e) {
+            resultFuture.completeExceptionally(e);
+        }
+
+        return resultFuture;
     }
 
     /**
@@ -158,16 +322,15 @@ public class RpcClientHandler implements InvocationHandler {
      *
      * 完整流程：
      * 1. 服务发现 - 从本地缓存获取可用服务实例列表
-     * 2. 负载均衡 - 使用 LoadBalancer 选择一个目标
-     * 3. 连接管理 - 从连接池获取或创建 Channel
-     * 4. 发送数据
+     * 2. 集群容错 - 使用集群策略执行调用（Failover/Failfast/Failsafe/Forking）
+     * 3. 结果转换 - 类型转换兜底处理
      *
      * @param request RPC 请求
      * @param method  调用的方法（用于返回类型转换）
      * @return 方法返回值
      * @throws Exception 调用异常
      */
-    private Object sendRequest(RpcRequest request, Method method) throws Exception {
+    private Object sendRequest(RpcRequest request, Method method) throws Throwable {
         String serviceName = request.getInterfaceName();
 
         // ========== 步骤1: 服务发现 ==========
@@ -182,64 +345,24 @@ public class RpcClientHandler implements InvocationHandler {
             }
         }
 
-        // ========== 步骤2: 负载均衡 ==========
-        List<InetSocketAddress> addresses = new ArrayList<>();
-        for (ServiceInstance instance : instances) {
-            addresses.add(new InetSocketAddress(instance.getHost(), instance.getPort()));
-        }
+        // ========== 步骤2: 集群容错调用 ==========
+        Cluster clusterStrategy = ClusterManager.getInstance().getCluster(cluster);
 
-        InetSocketAddress targetAddress = loadBalancer.select(addresses, serviceName);
-        if (targetAddress == null) {
-            logger.error("Load balancer returned no address for service: {}", serviceName);
-            throw new NoProviderAvailableException(serviceName, "负载均衡器无法选择服务地址");
-        }
+        ClusterInvocation invocation = new ClusterInvocation(
+                serviceName, version, request, method.getReturnType(),
+                instances, loadBalancer, nettyClient, serializer, timeout, retries,
+                enableCircuitBreaker, circuitBreakerThreshold, circuitBreakerTimeout,
+                enableRateLimit, rateLimitPermits
+        );
 
-        logger.debug("Selected target address: {}:{} for service: {}",
-                targetAddress.getHostString(), targetAddress.getPort(), serviceName);
+        logger.debug("Using cluster strategy: {} for service: {}", clusterStrategy.getName(), serviceName);
 
-        // ========== 步骤3 & 4: 获取连接并发送 ==========
-        // 构建 RpcMessage
-        RpcMessage message = new RpcMessage();
-        message.setMagicNumber(RpcMessage.MAGIC_NUMBER);
-        message.setVersion(RpcMessage.VERSION);
-        message.setSerializerType(serializer.getType());
-        message.setMessageType(RpcMessage.REQUEST);
-        message.setRequestId(request.getRequestId());
-        message.setBody(request);
+        Object result = clusterStrategy.invoke(invocation);
 
-        // 创建 CompletableFuture 用于等待响应
-        CompletableFuture<RpcResponse> future = new CompletableFuture<>();
-        pendingRequestManager.addPendingRequest(request.getRequestId(), future);
+        // ========== 步骤3: 结果类型转换 ==========
+        result = convertResultType(result, method);
 
-        try {
-            // 发送消息（通过连接池自动获取或创建连接）
-            if (logger.isDebugEnabled()) {
-                logger.debug("Sending RPC request: {} to {}", request, targetAddress);
-            }
-            nettyClient.sendMessage(targetAddress, message);
-
-            // 等待响应
-            RpcResponse response = future.get(timeout, TimeUnit.MILLISECONDS);
-
-            // 处理响应
-            if (response == null) {
-                throw new RuntimeException("RPC response is null");
-            }
-
-            if (!response.isSuccess()) {
-                throw new RuntimeException("RPC call failed: " + response.getMessage());
-            }
-
-            // 获取响应数据并进行类型转换兜底
-            Object result = response.getData();
-            result = convertResultType(result, method);
-
-            return result;
-
-        } finally {
-            // 确保从待处理请求中移除
-            pendingRequestManager.removePendingRequest(request.getRequestId());
-        }
+        return result;
     }
 
     /**

@@ -24,40 +24,8 @@
       </div>
     </div>
 
-    <!-- 页面标题 -->
-    <div class="text-center relative">
-      <h2 class="text-3xl font-bold text-white mb-2">
-        <span class="text-gradient">Lumina-RPC 监控面板</span>
-      </h2>
-      <p class="text-slate-500">实时监控您的 RPC 服务与 Mock 规则运行状态</p>
-      <!-- 手动刷新按钮 -->
-      <button
-        @click="fetchStats"
-        :disabled="loading"
-        class="absolute right-4 top-0 p-2 text-slate-400 hover:text-white transition-colors rounded-lg hover:bg-slate-800"
-        title="刷新"
-      >
-        <svg class="w-5 h-5" :class="{ 'animate-spin': loading }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-        </svg>
-      </button>
-    </div>
-
-    <!-- 加载状态 -->
-    <div v-if="loading" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-      <div v-for="i in 4" :key="i" class="glass-panel p-6 card-hover animate-pulse">
-        <div class="flex items-center justify-between">
-          <div class="space-y-2">
-            <div class="h-8 w-16 bg-slate-700 rounded"></div>
-            <div class="h-4 w-24 bg-slate-700 rounded"></div>
-          </div>
-          <div class="h-12 w-12 bg-slate-700 rounded-lg"></div>
-        </div>
-      </div>
-    </div>
-
     <!-- 统计卡片 -->
-    <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
       <StatsCard
         :value="String(stats.onlineServices || 0)"
         label="在线服务"
@@ -99,18 +67,20 @@
       />
     </div>
 
-    <!-- 服务拓扑（独占整行） -->
-    <div>
-      <TopologyView />
-    </div>
+    <!-- 请求趋势图 -->
+    <TrendChart />
+
+    <!-- 服务拓扑 -->
+    <TopologyView />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import StatsCard from '../components/StatsCard.vue'
+import TrendChart from '../components/TrendChart.vue'
 import TopologyView from './TopologyView.vue'
 
 interface StatsData {

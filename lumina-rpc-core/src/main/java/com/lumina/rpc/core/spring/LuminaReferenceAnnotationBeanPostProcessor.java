@@ -82,13 +82,38 @@ public class LuminaReferenceAnnotationBeanPostProcessor implements BeanPostProce
 
             Class<?> interfaceClass = field.getType();
 
-            log.info("🔧 [Lumina-RPC] Injecting @LuminaReference proxy for: {}.{} (interface: {})",
+            // 从注解中读取所有参数
+            String version = reference.version();
+            long timeout = reference.timeout();
+            boolean async = reference.async();
+            String cluster = reference.cluster();
+            int retries = reference.retries();
+
+            // 熔断器配置
+            boolean enableCircuitBreaker = reference.circuitBreaker();
+            int circuitBreakerThreshold = reference.circuitBreakerThreshold();
+            long circuitBreakerTimeout = reference.circuitBreakerTimeout();
+
+            // 限流器配置
+            boolean enableRateLimit = reference.rateLimit();
+            int rateLimitPermits = reference.rateLimitPermits();
+
+            log.info("🔧 [Lumina-RPC] Injecting @LuminaReference proxy for: {}.{} (interface: {}, async: {}, cluster: {}, retries: {}, circuitBreaker: {}, rateLimit: {})",
                     bean.getClass().getSimpleName(),
                     field.getName(),
-                    interfaceClass.getName());
+                    interfaceClass.getName(),
+                    async,
+                    cluster,
+                    retries,
+                    enableCircuitBreaker,
+                    enableRateLimit);
 
             // 使用 ProxyFactory 创建动态代理
-            Object proxy = proxyFactory.createProxy(interfaceClass);
+            Object proxy = proxyFactory.createProxy(
+                    interfaceClass, version, timeout, async, cluster, retries,
+                    enableCircuitBreaker, circuitBreakerThreshold, circuitBreakerTimeout,
+                    enableRateLimit, rateLimitPermits
+            );
 
             // 设置字段可访问并注入代理
             ReflectionUtils.makeAccessible(field);

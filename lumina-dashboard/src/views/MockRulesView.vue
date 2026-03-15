@@ -5,7 +5,7 @@
       <h2 class="text-3xl font-bold text-white mb-2">
         <span class="text-gradient">Mock 规则配置</span>
       </h2>
-      <p class="text-slate-500">企业级双模 Mock 引擎：短路拦截 & 数据篡改</p>
+      <p class="text-slate-500">双模 Mock 引擎：短路拦截 & 数据篡改</p>
     </div>
 
     <!-- 规则列表 -->

@@ -70,6 +70,62 @@ public class ProxyFactory {
      * @return 代理实例
      */
     public <T> T createProxy(Class<T> interfaceClass, String version, long timeout) {
+        return createProxy(interfaceClass, version, timeout, false);
+    }
+
+    /**
+     * 创建接口的动态代理（支持异步）
+     *
+     * @param interfaceClass 接口类
+     * @param version        服务版本
+     * @param timeout        超时时间
+     * @param async          是否异步调用
+     * @param <T>            接口类型
+     * @return 代理实例
+     */
+    public <T> T createProxy(Class<T> interfaceClass, String version, long timeout, boolean async) {
+        return createProxy(interfaceClass, version, timeout, async, "failover", 3);
+    }
+
+    /**
+     * 创建接口的动态代理（完整参数）
+     *
+     * @param interfaceClass 接口类
+     * @param version        服务版本
+     * @param timeout        超时时间
+     * @param async          是否异步调用
+     * @param cluster        集群策略
+     * @param retries        重试次数
+     * @param <T>            接口类型
+     * @return 代理实例
+     */
+    public <T> T createProxy(Class<T> interfaceClass, String version, long timeout, boolean async,
+                             String cluster, int retries) {
+        return createProxy(interfaceClass, version, timeout, async, cluster, retries,
+                true, 50, 30000, false, 100);
+    }
+
+    /**
+     * 创建接口的动态代理（完整参数 + 熔断/限流配置）
+     *
+     * @param interfaceClass 接口类
+     * @param version        服务版本
+     * @param timeout        超时时间
+     * @param async          是否异步调用
+     * @param cluster        集群策略
+     * @param retries        重试次数
+     * @param enableCircuitBreaker 是否启用熔断器
+     * @param circuitBreakerThreshold 熔断器错误率阈值
+     * @param circuitBreakerTimeout 熔断器恢复时间
+     * @param enableRateLimit 是否启用限流
+     * @param rateLimitPermits 限流阈值（每秒请求数）
+     * @param <T>            接口类型
+     * @return 代理实例
+     */
+    public <T> T createProxy(Class<T> interfaceClass, String version, long timeout, boolean async,
+                             String cluster, int retries,
+                             boolean enableCircuitBreaker, int circuitBreakerThreshold, long circuitBreakerTimeout,
+                             boolean enableRateLimit, int rateLimitPermits) {
         if (!interfaceClass.isInterface()) {
             throw new IllegalArgumentException("Class must be an interface: " + interfaceClass.getName());
         }
@@ -80,8 +136,16 @@ public class ProxyFactory {
                     interfaceClass,
                     version,
                     timeout,
+                    async,
+                    cluster,
+                    retries,
                     serializer,
-                    nettyClient
+                    nettyClient,
+                    enableCircuitBreaker,
+                    circuitBreakerThreshold,
+                    circuitBreakerTimeout,
+                    enableRateLimit,
+                    rateLimitPermits
             );
 
             // 使用 ByteBuddy 创建代理
@@ -98,7 +162,8 @@ public class ProxyFactory {
             T proxyInstance = proxyClass.getDeclaredConstructor().newInstance();
 
             if (logger.isDebugEnabled()) {
-                logger.debug("Created proxy for interface: {}", interfaceClass.getName());
+                logger.debug("Created proxy for interface: {} (async={}, cluster={}, retries={}, circuitBreaker={}, rateLimit={})",
+                        interfaceClass.getName(), async, cluster, retries, enableCircuitBreaker, enableRateLimit);
             }
 
             return proxyInstance;

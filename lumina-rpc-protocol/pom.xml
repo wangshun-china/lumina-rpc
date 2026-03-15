@@ -27,6 +27,13 @@
             <artifactId>jackson-databind</artifactId>
         </dependency>
 
+        <!-- Kryo - 高性能序列化 -->
+        <dependency>
+            <groupId>com.esotericsoftware</groupId>
+            <artifactId>kryo</artifactId>
+            <version>5.5.0</version>
+        </dependency>
+
         <!-- SLF4J - 日志接口 -->
         <dependency>
             <groupId>org.slf4j</groupId>

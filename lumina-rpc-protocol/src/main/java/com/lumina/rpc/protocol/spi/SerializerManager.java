@@ -25,6 +25,8 @@ public class SerializerManager {
         loadSerializers();
         // 注册默认的 JSON 序列化器
         registerSerializer(new JsonSerializer());
+        // 注册 KRYO 序列化器（高性能）
+        registerSerializer(new KryoSerializer());
     }
 
     /**

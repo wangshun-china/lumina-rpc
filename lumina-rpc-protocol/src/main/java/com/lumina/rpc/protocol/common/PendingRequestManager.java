@@ -1,16 +1,25 @@
 package com.lumina.rpc.protocol.common;
 
 import com.lumina.rpc.protocol.RpcResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 /**
  * 待处理请求管理器
  *
  * 维护一个全局的 ConcurrentHashMap，用于将异步的 Netty 响应转为同步的方法返回
+ *
+ * 支持优雅停机：
+ * - 等待所有 pending 请求完成
+ * - 超时后强制取消
  */
 public class PendingRequestManager {
+
+    private static final Logger logger = LoggerFactory.getLogger(PendingRequestManager.class);
 
     // 单例实例
     private static final PendingRequestManager INSTANCE = new PendingRequestManager();
@@ -92,6 +101,49 @@ public class PendingRequestManager {
      */
     public int getPendingCount() {
         return pendingRequests.size();
+    }
+
+    /**
+     * 等待所有待处理请求完成（用于优雅停机）
+     *
+     * @param timeoutMs 超时时间（毫秒）
+     * @return 是否所有请求都已完成
+     */
+    public boolean awaitAllPendingRequests(long timeoutMs) {
+        int pendingCount = pendingRequests.size();
+        if (pendingCount == 0) {
+            return true;
+        }
+
+        logger.info("⏳ [Graceful Shutdown] Waiting for {} pending requests (timeout: {}ms)...",
+                pendingCount, timeoutMs);
+
+        long startTime = System.currentTimeMillis();
+        long remainingTime = timeoutMs;
+
+        while (!pendingRequests.isEmpty() && remainingTime > 0) {
+            try {
+                Thread.sleep(50);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+            remainingTime = timeoutMs - (System.currentTimeMillis() - startTime);
+        }
+
+        int remaining = pendingRequests.size();
+        if (remaining > 0) {
+            logger.warn("⚠️ [Graceful Shutdown] Timeout! Cancelling {} pending requests", remaining);
+            // 取消所有未完成的请求
+            for (var entry : pendingRequests.entrySet()) {
+                entry.getValue().cancel(true);
+            }
+            pendingRequests.clear();
+            return false;
+        }
+
+        logger.info("✅ [Graceful Shutdown] All pending requests completed");
+        return true;
     }
 
     /**

@@ -1102,17 +1102,33 @@ public class MockRuleManager {
         // 响应数据
         Object responseBody = data.get("responseBody");
         if (responseBody instanceof String) {
+            String responseStr = (String) responseBody;
+            // 兼容处理：检查是否包含前端错误生成的 [elementN] 格式的 key
+            if (responseStr.contains(".[element")) {
+                responseStr = convertFlatKeysToNestedJson(responseStr);
+                logger.info("🔧 [Mock] 检测到扁平化 key，已转换为嵌套 JSON");
+            }
             try {
-                rule.setResponseData(objectMapper.readValue((String) responseBody, Object.class));
-                rule.setResponseDataJson((String) responseBody);
+                rule.setResponseData(objectMapper.readValue(responseStr, Object.class));
+                rule.setResponseDataJson(responseStr);
             } catch (Exception e) {
-                rule.setResponseData(responseBody);
+                rule.setResponseData(responseStr);
             }
         } else if (responseBody instanceof Map) {
-            rule.setResponseData(responseBody);
-            try {
-                rule.setResponseDataJson(objectMapper.writeValueAsString(responseBody));
-            } catch (Exception ignored) {}
+            // 兼容处理：检查 Map 是否包含错误格式的 key
+            Map<String, Object> responseMap = (Map<String, Object>) responseBody;
+            if (hasFlatKeys(responseMap)) {
+                responseMap = convertFlatKeysMap(responseMap);
+                try {
+                    rule.setResponseDataJson(objectMapper.writeValueAsString(responseMap));
+                } catch (Exception ignored) {}
+                rule.setResponseData(responseMap);
+            } else {
+                rule.setResponseData(responseMap);
+                try {
+                    rule.setResponseDataJson(objectMapper.writeValueAsString(responseMap));
+                } catch (Exception ignored) {}
+            }
         }
 
         // 异常配置
@@ -1126,6 +1142,166 @@ public class MockRuleManager {
         }
 
         return rule;
+    }
+
+    /**
+     * 兼容处理：检查 Map 是否包含前端错误生成的 [elementN] 格式的 key
+     */
+    @SuppressWarnings("unchecked")
+    private boolean hasFlatKeys(Map<String, Object> map) {
+        if (map == null || map.isEmpty()) {
+            return false;
+        }
+        for (String key : map.keySet()) {
+            if (key.contains(".[element")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 兼容处理：将前端错误生成的扁平化 key 转换为正确的嵌套 JSON
+     * 例如: {"contacts.[element0].shipId": "111"} -> {"contacts": [{"shipId": "111"}]}
+     */
+    @SuppressWarnings("unchecked")
+    private String convertFlatKeysToNestedJson(String jsonStr) {
+        try {
+            Map<String, Object> flatMap = objectMapper.readValue(jsonStr, Map.class);
+            Map<String, Object> nestedMap = convertFlatKeysMap(flatMap);
+            return objectMapper.writeValueAsString(nestedMap);
+        } catch (Exception e) {
+            logger.warn("🔧 [Mock] 转换扁平化 key 失败，保持原样: {}", e.getMessage());
+            return jsonStr;
+        }
+    }
+
+    /**
+     * 兼容处理：将扁平化 key 的 Map 转换为嵌套结构
+     */
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> convertFlatKeysMap(Map<String, Object> flatMap) {
+        Map<String, Object> result = new ConcurrentHashMap<>();
+
+        for (Map.Entry<String, Object> entry : flatMap.entrySet()) {
+            String key = entry.getKey();
+            Object value = entry.getValue();
+
+            // 检查是否包含 [elementN] 格式
+            if (key.contains(".[element")) {
+                // 将 key 转换为嵌套结构
+                // 例如: contacts.[element0].shipId -> contacts[0].shipId
+                setNestedValue(result, key, value);
+            } else {
+                // 正常 key，直接设置
+                if (value instanceof Map) {
+                    result.put(key, convertFlatKeysMap((Map<String, Object>) value));
+                } else {
+                    result.put(key, value);
+                }
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * 设置嵌套值
+     * 例如: setNestedValue(result, "contacts.[element0].shipId", "111")
+     * 等价于: result.contacts[0].shipId = "111"
+     */
+    @SuppressWarnings("unchecked")
+    private void setNestedValue(Map<String, Object> root, String path, Object value) {
+        // 将 .[element0]. 转换为 [0].
+        String normalizedPath = path.replaceAll("\\.\\[element(\\d+)\\]\\.", "[$1].");
+
+        // 解析路径
+        String[] parts = parsePath(normalizedPath);
+        Map<String, Object> current = root;
+
+        for (int i = 0; i < parts.length - 1; i++) {
+            String part = parts[i];
+            Object next = current.get(part);
+
+            if (next == null) {
+                // 判断下一级是对象还是数组
+                String nextPart = parts[i + 1];
+                if (nextPart.matches("\\d+")) {
+                    // 下一级是数组索引
+                    next = new java.util.ArrayList<>();
+                } else {
+                    next = new ConcurrentHashMap<>();
+                }
+                current.put(part, next);
+            }
+
+            if (next instanceof List) {
+                List<Object> list = (List<Object>) next;
+                int index = Integer.parseInt(parts[i + 1]);
+                // 扩展数组直到索引位置
+                while (list.size() <= index) {
+                    list.add(null);
+                }
+                if (i + 1 == parts.length - 1) {
+                    // 最后一层，设置为值
+                    list.set(index, value);
+                } else {
+                    // 还需要继续往下层
+                    Object nested = list.get(index);
+                    if (nested == null) {
+                        String nextNextPart = parts[i + 2];
+                        if (nextNextPart != null && nextNextPart.matches("\\d+")) {
+                            nested = new java.util.ArrayList<>();
+                        } else {
+                            nested = new ConcurrentHashMap<>();
+                        }
+                        list.set(index, nested);
+                    }
+                    if (nested instanceof Map) {
+                        current = (Map<String, Object>) nested;
+                    }
+                }
+                return;
+            } else if (next instanceof Map) {
+                current = (Map<String, Object>) next;
+            }
+        }
+
+        // 设置最终值
+        if (parts.length > 0) {
+            current.put(parts[parts.length - 1], value);
+        }
+    }
+
+    /**
+     * 解析路径为数组
+     * 例如: "contacts[0].shipId" -> ["contacts", "0", "shipId"]
+     */
+    private String[] parsePath(String path) {
+        // 处理数组索引格式: contacts[0] -> contacts, 0
+        StringBuilder sb = new StringBuilder();
+        boolean inBracket = false;
+
+        for (int i = 0; i < path.length(); i++) {
+            char c = path.charAt(i);
+            if (c == '[') {
+                if (sb.length() > 0 && sb.charAt(sb.length() - 1) != '.') {
+                    sb.append('.');
+                }
+                inBracket = true;
+            } else if (c == ']') {
+                inBracket = false;
+            } else if (c == '.' && !inBracket) {
+                // 忽略普通点号（除非在括号内）
+                if (sb.length() > 0 && sb.charAt(sb.length() - 1) != '.' && sb.charAt(sb.length() - 1) != ',') {
+                    sb.append(',');
+                }
+            } else {
+                sb.append(c);
+            }
+        }
+
+        return sb.toString().split(",");
     }
 
     /**

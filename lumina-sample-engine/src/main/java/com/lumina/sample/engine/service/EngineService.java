@@ -18,6 +18,15 @@ public interface EngineService {
     WarpStatusDTO getWarpStatus(String shipId);
 
     /**
+     * 测试方法：可模拟失败
+     * 用于测试集群容错策略
+     *
+     * @param shouldFail 是否模拟失败
+     * @return 测试结果
+     */
+    String testCluster(boolean shouldFail);
+
+    /**
      * 引擎状态DTO
      */
     @Data

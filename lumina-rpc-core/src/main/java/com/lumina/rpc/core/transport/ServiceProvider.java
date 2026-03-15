@@ -3,6 +3,8 @@ package com.lumina.rpc.core.transport;
 import com.lumina.rpc.core.annotation.LuminaService;
 import com.lumina.rpc.core.discovery.ServiceRegistryClient;
 import com.lumina.rpc.core.metadata.ServiceMetadataExtractor;
+import com.lumina.rpc.core.shutdown.GracefulShutdownManager;
+import com.lumina.rpc.core.shutdown.ShutdownConfigClient;
 import com.lumina.rpc.protocol.spi.Serializer;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
@@ -276,6 +278,30 @@ public class ServiceProvider {
         if (nettyServer == null) {
             throw new IllegalStateException("ServiceProvider not initialized. Call init() first or use constructor with parameters.");
         }
+
+        // 确定服务名
+        String primaryServiceName = serviceRegistry.getAllServiceNames().stream().findFirst().orElse("unknown");
+
+        // ========== 注册优雅停机回调 ==========
+        GracefulShutdownManager shutdownManager = GracefulShutdownManager.getInstance();
+        shutdownManager.setShutdownCallback(() -> {
+            // 从控制平面注销
+            if (registeredToControlPlane) {
+                try {
+                    ServiceRegistryClient.shutdown();
+                    logger.info("📡 [Graceful Shutdown] Deregistered from Control Plane");
+                } catch (Exception e) {
+                    logger.warn("Error during Control Plane deregistration", e);
+                }
+            }
+        });
+        // 设置停机超时时间（10秒）
+        shutdownManager.setShutdownTimeout(10000);
+
+        // ========== 启动停机配置同步客户端 ==========
+        ShutdownConfigClient configClient = ShutdownConfigClient.getInstance();
+        configClient.start(primaryServiceName);
+
         // 在新线程中启动服务器，避免阻塞
         new Thread(() -> nettyServer.start(port), "rpc-server-starter").start();
 
@@ -338,11 +364,13 @@ public class ServiceProvider {
     /**
      * 关闭服务提供者
      *
-     * 防御性编程：实现优雅停机
-     * 1. 防止重复关闭
-     * 2. 先从控制平面注销（通知其他服务不要再来连接）
-     * 3. 关闭 Netty 服务器（停止接受新请求）
-     * 4. 清理本地服务注册表
+     * 优雅停机流程（对标 Dubbo）：
+     * 1. 触发 GracefulShutdownManager 开始停机
+     * 2. 从控制平面注销（通知消费者不再路由）
+     * 3. 标记停机状态，拒绝新请求
+     * 4. 等待正在处理的请求完成（in-flight requests）
+     * 5. 关闭 Netty 服务器
+     * 6. 清理本地服务注册表
      */
     @PreDestroy
     public void shutdown() {
@@ -352,17 +380,10 @@ public class ServiceProvider {
             return;
         }
 
-        logger.info("🛑 [Graceful Shutdown] Shutting down ServiceProvider...");
+        logger.info("🛑 [Graceful Shutdown] Initiating graceful shutdown...");
 
-        // 1. 从控制平面注销（优先执行，通知其他服务）
-        if (registeredToControlPlane) {
-            try {
-                ServiceRegistryClient.shutdown();
-                logger.info("📡 [Graceful Shutdown] Deregistered from Control Plane");
-            } catch (Exception e) {
-                logger.warn("Error during Control Plane deregistration", e);
-            }
-        }
+        // 1. 触发优雅停机（会等待 in-flight 请求完成）
+        GracefulShutdownManager.getInstance().gracefulShutdown();
 
         // 2. 关闭 Netty 服务器
         if (nettyServer != null) {

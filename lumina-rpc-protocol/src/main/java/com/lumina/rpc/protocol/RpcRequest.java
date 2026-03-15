@@ -13,6 +13,9 @@ public class RpcRequest implements Serializable {
     // 请求ID，用于匹配响应
     private long requestId;
 
+    // 链路追踪ID，用于分布式追踪
+    private String traceId;
+
     // 接口全限定名
     private String interfaceName;
 
@@ -37,6 +40,14 @@ public class RpcRequest implements Serializable {
 
     public void setRequestId(long requestId) {
         this.requestId = requestId;
+    }
+
+    public String getTraceId() {
+        return traceId;
+    }
+
+    public void setTraceId(String traceId) {
+        this.traceId = traceId;
     }
 
     public String getInterfaceName() {
@@ -83,6 +94,7 @@ public class RpcRequest implements Serializable {
     public String toString() {
         return "RpcRequest{" +
                 "requestId=" + requestId +
+                ", traceId='" + traceId + '\'' +
                 ", interfaceName='" + interfaceName + '\'' +
                 ", methodName='" + methodName + '\'' +
                 ", parameterTypes=" + Arrays.toString(parameterTypes) +
