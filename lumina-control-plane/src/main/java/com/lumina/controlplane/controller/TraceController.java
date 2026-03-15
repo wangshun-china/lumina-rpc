@@ -1,6 +1,9 @@
 package com.lumina.controlplane.controller;
 
 import com.lumina.controlplane.dto.SpanDto;
+import com.lumina.controlplane.dto.TraceDetailDto;
+import com.lumina.controlplane.dto.TraceSummaryDto;
+import com.lumina.controlplane.dto.ServiceStatsDto;
 import com.lumina.controlplane.service.TraceService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -8,6 +11,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -55,14 +59,14 @@ public class TraceController {
     public ResponseEntity<?> getTraces(
             @RequestParam(defaultValue = "100") int limit) {
         try {
-            List<TraceService.TraceSummary> traces = traceService.getRecentTraces(limit);
+            List<TraceSummaryDto> traces = traceService.getRecentTraces(limit);
             return ResponseEntity.ok(traces);
         } catch (Exception e) {
             logger.error("Failed to get traces: {}", e.getMessage(), e);
             Map<String, Object> error = new HashMap<>();
             error.put("success", false);
             error.put("error", e.getMessage());
-            error.put("traces", List.of()); // 返回空列表
+            error.put("traces", List.of());
             return ResponseEntity.ok(error);
         }
     }
@@ -71,9 +75,9 @@ public class TraceController {
      * 获取 Trace 详情
      */
     @GetMapping("/{traceId}")
-    public ResponseEntity<TraceService.TraceDetail> getTraceDetail(@PathVariable String traceId) {
+    public ResponseEntity<TraceDetailDto> getTraceDetail(@PathVariable String traceId) {
         try {
-            TraceService.TraceDetail detail = traceService.getTraceDetail(traceId);
+            TraceDetailDto detail = traceService.getTraceDetail(traceId);
             if (detail == null) {
                 return ResponseEntity.notFound().build();
             }
@@ -88,13 +92,13 @@ public class TraceController {
      * 获取服务统计
      */
     @GetMapping("/stats/services")
-    public ResponseEntity<List<TraceService.ServiceStats>> getServiceStats(
+    public ResponseEntity<List<ServiceStatsDto>> getServiceStats(
             @RequestParam(defaultValue = "1") int hours) {
         try {
-            java.time.LocalDateTime endTime = java.time.LocalDateTime.now();
-            java.time.LocalDateTime startTime = endTime.minusHours(hours);
+            LocalDateTime endTime = LocalDateTime.now();
+            LocalDateTime startTime = endTime.minusHours(hours);
 
-            List<TraceService.ServiceStats> stats = traceService.getServiceStats(startTime, endTime);
+            List<ServiceStatsDto> stats = traceService.getServiceStats(startTime, endTime);
             return ResponseEntity.ok(stats);
         } catch (Exception e) {
             logger.error("Failed to get service stats: {}", e.getMessage(), e);

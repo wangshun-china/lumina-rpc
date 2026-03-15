@@ -1,6 +1,9 @@
 package com.lumina.controlplane.service;
 
 import com.lumina.controlplane.dto.SpanDto;
+import com.lumina.controlplane.dto.TraceDetailDto;
+import com.lumina.controlplane.dto.TraceSummaryDto;
+import com.lumina.controlplane.dto.ServiceStatsDto;
 import com.lumina.controlplane.entity.SpanEntity;
 import com.lumina.controlplane.repository.SpanRepository;
 import org.slf4j.Logger;
@@ -53,14 +56,14 @@ public class TraceService {
     /**
      * 获取 Trace 详情（包含所有 Span）
      */
-    public TraceDetail getTraceDetail(String traceId) {
+    public TraceDetailDto getTraceDetail(String traceId) {
         List<SpanEntity> spans = spanRepository.findByTraceIdOrderByStartTimeAsc(traceId);
 
         if (spans.isEmpty()) {
             return null;
         }
 
-        TraceDetail detail = new TraceDetail();
+        TraceDetailDto detail = new TraceDetailDto();
         detail.setTraceId(traceId);
         detail.setSpans(spans);
 
@@ -88,17 +91,17 @@ public class TraceService {
     /**
      * 获取最近的 Trace 列表
      */
-    public List<TraceSummary> getRecentTraces(int limit) {
+    public List<TraceSummaryDto> getRecentTraces(int limit) {
         List<Object[]> results = spanRepository.findRecentTraceIdsWithTime(PageRequest.of(0, limit));
-        List<TraceSummary> summaries = new ArrayList<>();
+        List<TraceSummaryDto> summaries = new ArrayList<>();
 
         for (Object[] row : results) {
             String traceId = (String) row[0];
             Long maxStartTime = row[1] != null ? ((Number) row[1]).longValue() : 0L;
 
-            TraceDetail detail = getTraceDetail(traceId);
+            TraceDetailDto detail = getTraceDetail(traceId);
             if (detail != null) {
-                TraceSummary summary = new TraceSummary();
+                TraceSummaryDto summary = new TraceSummaryDto();
                 summary.setTraceId(traceId);
                 summary.setSpanCount(detail.getSpanCount());
                 summary.setTotalDuration(detail.getTotalDuration());
@@ -121,16 +124,16 @@ public class TraceService {
     /**
      * 获取服务调用统计
      */
-    public List<ServiceStats> getServiceStats(LocalDateTime startTime, LocalDateTime endTime) {
+    public List<ServiceStatsDto> getServiceStats(LocalDateTime startTime, LocalDateTime endTime) {
         List<SpanEntity> spans = spanRepository.findByServiceNameAndTimeRange("", startTime, endTime);
 
         // 按服务名分组统计
-        Map<String, ServiceStats> statsMap = new HashMap<>();
+        Map<String, ServiceStatsDto> statsMap = new HashMap<>();
 
         for (SpanEntity span : spans) {
             String serviceName = span.getServiceName();
-            ServiceStats stats = statsMap.computeIfAbsent(serviceName, k -> {
-                ServiceStats s = new ServiceStats();
+            ServiceStatsDto stats = statsMap.computeIfAbsent(serviceName, k -> {
+                ServiceStatsDto s = new ServiceStatsDto();
                 s.setServiceName(serviceName);
                 return s;
             });
@@ -147,187 +150,5 @@ public class TraceService {
         }
 
         return new ArrayList<>(statsMap.values());
-    }
-
-    /**
-     * Trace 详情
-     */
-    public static class TraceDetail {
-        private String traceId;
-        private List<SpanEntity> spans;
-        private long totalDuration;
-        private int spanCount;
-        private boolean hasError;
-
-        public String getTraceId() {
-            return traceId;
-        }
-
-        public void setTraceId(String traceId) {
-            this.traceId = traceId;
-        }
-
-        public List<SpanEntity> getSpans() {
-            return spans;
-        }
-
-        public void setSpans(List<SpanEntity> spans) {
-            this.spans = spans;
-        }
-
-        public long getTotalDuration() {
-            return totalDuration;
-        }
-
-        public void setTotalDuration(long totalDuration) {
-            this.totalDuration = totalDuration;
-        }
-
-        public int getSpanCount() {
-            return spanCount;
-        }
-
-        public void setSpanCount(int spanCount) {
-            this.spanCount = spanCount;
-        }
-
-        public boolean isHasError() {
-            return hasError;
-        }
-
-        public void setHasError(boolean hasError) {
-            this.hasError = hasError;
-        }
-    }
-
-    /**
-     * Trace 摘要
-     */
-    public static class TraceSummary {
-        private String traceId;
-        private String serviceName;
-        private long startTime;
-        private int spanCount;
-        private long totalDuration;
-        private boolean hasError;
-
-        public String getTraceId() {
-            return traceId;
-        }
-
-        public void setTraceId(String traceId) {
-            this.traceId = traceId;
-        }
-
-        public String getServiceName() {
-            return serviceName;
-        }
-
-        public void setServiceName(String serviceName) {
-            this.serviceName = serviceName;
-        }
-
-        public long getStartTime() {
-            return startTime;
-        }
-
-        public void setStartTime(long startTime) {
-            this.startTime = startTime;
-        }
-
-        public int getSpanCount() {
-            return spanCount;
-        }
-
-        public void setSpanCount(int spanCount) {
-            this.spanCount = spanCount;
-        }
-
-        public long getTotalDuration() {
-            return totalDuration;
-        }
-
-        public void setTotalDuration(long totalDuration) {
-            this.totalDuration = totalDuration;
-        }
-
-        public boolean isHasError() {
-            return hasError;
-        }
-
-        public void setHasError(boolean hasError) {
-            this.hasError = hasError;
-        }
-    }
-
-    /**
-     * 服务统计
-     */
-    public static class ServiceStats {
-        private String serviceName;
-        private int callCount;
-        private int successCount;
-        private int errorCount;
-        private long totalDuration;
-        private long maxDuration;
-        private long minDuration = Long.MAX_VALUE;
-
-        public String getServiceName() {
-            return serviceName;
-        }
-
-        public void setServiceName(String serviceName) {
-            this.serviceName = serviceName;
-        }
-
-        public int getCallCount() {
-            return callCount;
-        }
-
-        public void incrementCallCount() {
-            this.callCount++;
-        }
-
-        public int getSuccessCount() {
-            return successCount;
-        }
-
-        public void incrementSuccessCount() {
-            this.successCount++;
-        }
-
-        public int getErrorCount() {
-            return errorCount;
-        }
-
-        public void incrementErrorCount() {
-            this.errorCount++;
-        }
-
-        public long getTotalDuration() {
-            return totalDuration;
-        }
-
-        public void addDuration(long duration) {
-            this.totalDuration += duration;
-            if (duration > maxDuration) {
-                maxDuration = duration;
-            }
-            if (duration < minDuration) {
-                minDuration = duration;
-            }
-        }
-
-        public long getAvgDuration() {
-            return callCount > 0 ? totalDuration / callCount : 0;
-        }
-
-        public long getMaxDuration() {
-            return maxDuration;
-        }
-
-        public long getMinDuration() {
-            return minDuration == Long.MAX_VALUE ? 0 : minDuration;
-        }
     }
 }
