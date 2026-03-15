@@ -22,7 +22,7 @@
 | 亮点 | 说明 |
 |------|------|
 | **自研 RPC 框架** | 从零实现完整的 RPC 通信层，深入理解分布式系统底层原理 |
-| **企业级特性** | 动态服务降级、Mock 规则引擎、SSE 实时推送，对标 Dubbo 核心能力 |
+| **企业级特性** | 动态服务降级、Mock 规则引擎、熔断限流、链路追踪，对标 Dubbo 核心能力 |
 | **生产级部署** | 完整 CI/CD 流水线，Docker 容器化，MySQL 持久化，已在云服务器运行 |
 | **前后端分离** | Spring Boot 后端 + Vue 3 前端，全栈独立完成 |
 | **架构设计** | 控制面/数据面分离架构，符合云原生设计理念 |
@@ -38,8 +38,11 @@
 - ✅ **高性能通信层**：基于 Netty 的 NIO 通信，支持自定义协议编解码
 - ✅ **服务注册发现**：自研控制面注册中心，支持心跳检测与故障剔除
 - ✅ **动态代理**：ByteBuddy 生成代理类，透明化远程调用
-- ✅ **负载均衡**：SPI 机制支持多种负载策略（RoundRobin、Random 等）
+- ✅ **负载均衡**：SPI 机制支持 5 种负载策略（RoundRobin、Random、WeightedRoundRobin、LeastActive、ConsistentHash）
+- ✅ **服务预热**：支持预热权重，新实例逐步承接流量
 - ✅ **Mock 引擎**：企业级动态降级能力，支持短路模式与数据篡改模式
+- ✅ **熔断限流**：动态熔断器配置、请求限流、超时控制
+- ✅ **链路追踪**：分布式调用链追踪，Span 收集与瀑布图可视化
 - ✅ **实时监控**：SSE 推送 Mock 规则变更，毫秒级生效
 - ✅ **可视化面板**：Vue 3 + Vue Flow 服务拓扑图，实时监控
 
@@ -53,6 +56,7 @@
 │  ┌─────────────────────────────────────────────────────────────┐ │
 │  │  Vue 3 Dashboard (lumina-dashboard)                         │ │
 │  │  ├─ 服务拓扑图 (Vue Flow)     ├─ Mock 规则配置               │ │
+│  │  ├─ 链路追踪 (瀑布图)         ├─ 熔断限流配置                │ │
 │  │  ├─ 消费者操作台             └─ 实时遥测数据                 │ │
 │  └─────────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────────┘
@@ -63,6 +67,7 @@
 │  ┌─────────────────────────────────────────────────────────────┐ │
 │  │  Control Plane (lumina-control-plane)                       │ │
 │  │  ├─ 服务注册中心 (HTTP API)   ├─ Mock 规则管理               │ │
+│  │  ├─ 链路追踪数据存储          ├─ 保护配置管理                │ │
 │  │  ├─ 心跳检测 & 健康管理       ├─ SSE 实时推送                │ │
 │  │  └─ MySQL 持久化                                            │ │
 │  └─────────────────────────────────────────────────────────────┘ │
@@ -75,8 +80,10 @@
 │  │  lumina-rpc-core  │  │ lumina-rpc-protocol│                    │
 │  │  ├─ 动态代理       │  │ ├─ 协议编解码      │                    │
 │  │  ├─ 服务发现       │  │ ├─ 消息序列化      │                    │
-│  │  ├─ 负载均衡       │  │ └─ 心跳机制        │                    │
-│  │  ├─ Mock 引擎      │  │                    │                    │
+│  │  ├─ 负载均衡(5种)  │  │ ├─ 心跳机制        │                    │
+│  │  ├─ Mock 引擎      │  │ └─ 连接池管理      │                    │
+│  │  ├─ 熔断限流       │  │                    │                    │
+│  │  ├─ 链路追踪       │  │                    │                    │
 │  │  └─ SPI 扩展机制   │  │                    │                    │
 │  └───────────────────┘  └───────────────────┘                    │
 └─────────────────────────────────────────────────────────────────┘
@@ -94,8 +101,8 @@
 
 ### 架构亮点：控制面/数据面分离
 
-- **数据面**：RPC 核心通信层，负责服务调用、负载均衡、Mock 拦截
-- **控制面**：服务注册中心，管理服务元数据、Mock 规则、健康状态
+- **数据面**：RPC 核心通信层，负责服务调用、负载均衡、Mock 拦截、熔断限流
+- **控制面**：服务注册中心，管理服务元数据、Mock 规则、保护配置、链路数据
 - **优势**：符合云原生设计理念，控制逻辑与数据转发解耦
 
 ---
@@ -120,6 +127,7 @@
 |------|------|------|
 | Vue 3 | ^3.4.0 | 前端框架 |
 | Vue Flow | ^1.33.0 | 服务拓扑图可视化 |
+| ECharts | ^5.5.0 | 链路追踪瀑布图、趋势图表 |
 | Axios | ^1.6.0 | HTTP 客户端 |
 | Element Plus | ^2.5.0 | UI 组件库 |
 
@@ -149,7 +157,26 @@
 +----------------+----------------+----------------+
 ```
 
-### 2. 企业级 Mock 引擎
+### 2. 多策略负载均衡
+
+支持 5 种负载均衡策略，通过 SPI 机制可扩展：
+
+| 策略 | 说明 | 适用场景 |
+|------|------|----------|
+| RoundRobin | 轮询选择 | 流量均匀分布 |
+| Random | 加权随机 | 服务器性能差异 |
+| WeightedRoundRobin | 加权轮询 | 按权重分配流量 |
+| LeastActive | 最少活跃调用 | 长连接场景 |
+| ConsistentHash | 一致性哈希 | 需要会话保持 |
+
+```java
+// 服务预热权重支持
+ServiceInstance instance = new ServiceInstance();
+instance.setWarmupWeight(50);  // 预热期间权重
+instance.setWeight(100);       // 正常权重
+```
+
+### 3. 企业级 Mock 引擎
 
 支持两种 Mock 模式：
 
@@ -163,7 +190,41 @@
 - 支持操作符：`equals`, `contains`, `regex`, `gt`, `lt`, `gte`, `lte`
 - 占位符篡改：`{{base}}` 保留原始值，支持数学运算 `{{base}}+100`
 
-### 3. SSE 实时推送
+### 4. 熔断限流保护
+
+```java
+// 动态熔断器配置
+ProtectionConfig config = new ProtectionConfig();
+config.setCircuitBreakerEnabled(true);
+config.setFailureRateThreshold(50);    // 失败率阈值 50%
+config.setSlowCallDurationThreshold(2000);  // 慢调用阈值 2s
+config.setSlowCallRateThreshold(30);   // 慢调用率阈值 30%
+
+// 限流配置
+config.setRateLimiterEnabled(true);
+config.setRateLimit(100);  // 每秒 100 次
+```
+
+### 5. 分布式链路追踪
+
+```java
+// Span 数据结构
+public class Span {
+    private String traceId;       // 链路 ID
+    private String spanId;        // 当前 Span ID
+    private String parentSpanId;  // 父 Span ID
+    private String serviceName;   // 服务名
+    private String methodName;    // 方法名
+    private String kind;          // CLIENT/SERVER
+    private long startTime;       // 开始时间
+    private long duration;        // 耗时
+    private boolean success;      // 是否成功
+}
+```
+
+**可视化**：前端瀑布图展示调用链，类似 Jaeger 风格。
+
+### 6. SSE 实时推送
 
 Mock 规则变更通过 Server-Sent Events 实时推送到所有消费者，毫秒级生效：
 
@@ -176,7 +237,7 @@ EventSource eventSource = new EventSource(url);
 eventSource.addEventListener("mock-rule-update", listener);
 ```
 
-### 4. SPI 扩展机制
+### 7. SPI 扩展机制
 
 ```java
 // 负载均衡器扩展点
@@ -305,6 +366,7 @@ jobs:
 - ✅ **健康检查**：等待 MySQL 就绪后再启动应用服务
 - ✅ **资源限制**：每个容器配置 CPU/内存限制，防止资源争抢
 - ✅ **日志管理**：限制日志文件大小，防止磁盘占满
+- ✅ **环境变量解耦**：本地开发与 Docker 部署通过环境变量自动切换
 
 ---
 
@@ -316,6 +378,7 @@ lumina-rpc/
 │   └── src/main/java/
 │       ├── codec/              # RpcEncoder, RpcDecoder
 │       ├── transport/          # NettyClient, NettyClientHandler
+│       ├── pool/               # 连接池管理
 │       └── spi/                # 序列化器 SPI
 │
 ├── lumina-rpc-core/            # 核心层：动态代理、服务发现
@@ -323,6 +386,10 @@ lumina-rpc/
 │       ├── annotation/         # @LuminaService, @LuminaReference
 │       ├── proxy/              # ByteBuddy 动态代理
 │       ├── discovery/          # 服务发现客户端
+│       ├── cluster/            # 集群容错、重试机制
+│       ├── spi/                # 负载均衡器 SPI (5种策略)
+│       ├── protection/         # 熔断器、限流器
+│       ├── trace/              # 链路追踪 (Span 收集、上报)
 │       ├── mock/               # Mock 规则引擎
 │       └── spring/             # Spring 自动配置
 │
@@ -330,14 +397,15 @@ lumina-rpc/
 │   └── src/main/java/
 │       ├── controller/         # REST API
 │       ├── service/            # 业务逻辑
-│       ├── entity/             # JPA 实体
+│       ├── entity/             # JPA 实体 (服务、Mock规则、Span、请求统计)
 │       └── repository/         # 数据访问
 │
 ├── lumina-dashboard/           # 前端监控面板
 │   └── src/
-│       ├── views/              # 页面组件
+│       ├── views/              # 页面组件 (拓扑图、链路追踪、Mock配置等)
 │       ├── components/         # 通用组件
-│       └── App.vue
+│       ├── api/                # API 模块化封装
+│       └── types/              # TypeScript 类型定义
 │
 ├── lumina-sample-engine/       # 示例服务：曲率引擎
 ├── lumina-sample-radar/        # 示例服务：深空雷达
@@ -362,7 +430,7 @@ lumina-rpc/
 
 ```bash
 # 1. 克隆项目
-git clone https://github.com/yourname/lumina-rpc.git
+git clone https://github.com/xixi-box/lumina-rpc.git
 cd lumina-rpc
 
 # 2. 构建项目
@@ -423,9 +491,17 @@ docker-compose logs -f
 
 实时展示服务注册状态、调用关系、健康状态。
 
+### 链路追踪
+
+瀑布图展示分布式调用链，Span 耗时、状态一目了然。
+
 ### Mock 规则配置
 
 可视化配置动态降级规则，支持条件匹配、响应篡改。
+
+### 熔断限流配置
+
+动态调整熔断器阈值、限流参数，实时生效。
 
 ### 消费者操作台
 
@@ -442,11 +518,15 @@ docker-compose logs -f
 | 服务过期时间 | 90s |
 | 连接超时 | 5s |
 | 请求超时 | 5s (可配置) |
+| 连接池大小 | min=2, max=10 (per address) |
 
 ---
 
 ## 🔮 未来规划
 
+- [x] 多策略负载均衡 (已完成 5 种)
+- [x] 链路追踪与可视化
+- [x] 熔断限流保护
 - [ ] 支持 gRPC 协议
 - [ ] 集成 OpenTelemetry 可观测性
 - [ ] 支持 Java 21 虚拟线程
@@ -457,9 +537,9 @@ docker-compose logs -f
 
 ## 👤 作者
 
-**Wang Shun**
+**Wang Shun (王顺)**
 
-- GitHub: [@yourname](https://github.com/yourname)
+- GitHub: [@xixi-box](https://github.com/xixi-box)
 
 ---
 
