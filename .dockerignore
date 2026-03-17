@@ -6,7 +6,8 @@
 *.md
 target/
 node_modules/
-dist/
+# 注意：不排除根目录的 dist/，因为 GitHub Actions 会复制前端构建产物到根目录
+lumina-dashboard/dist/
 .idea/
 .vscode/
 *.iml
