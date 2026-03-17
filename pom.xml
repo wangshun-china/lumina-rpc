@@ -16,9 +16,11 @@
         <module>lumina-rpc-protocol</module>
         <module>lumina-rpc-core</module>
         <module>lumina-control-plane</module>
-        <!-- Starfleet Demo Cluster -->
-        <module>lumina-sample-engine</module>
-        <module>lumina-sample-radar</module>
+        <!-- Starfleet Demo Cluster - API/Service 分离架构 -->
+        <module>lumina-sample-engine-api</module>
+        <module>lumina-sample-engine-service</module>
+        <module>lumina-sample-radar-api</module>
+        <module>lumina-sample-radar-service</module>
         <module>lumina-sample-command</module>
     </modules>
 

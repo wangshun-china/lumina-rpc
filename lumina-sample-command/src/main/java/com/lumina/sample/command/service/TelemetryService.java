@@ -1,7 +1,7 @@
 package com.lumina.sample.command.service;
 
-import com.lumina.sample.engine.service.EngineService;
-import com.lumina.sample.radar.service.RadarService;
+import com.lumina.sample.engine.api.EngineService;
+import com.lumina.sample.radar.api.RadarService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 

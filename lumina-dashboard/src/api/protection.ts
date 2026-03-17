@@ -13,7 +13,7 @@ export const protectionApi = {
    * 获取所有保护配置
    */
   list: async (): Promise<ProtectionConfig[]> => {
-    const response = await axios.get('/api/v1/protection/configs')
+    const response = await axios.get('/api/v1/protection/configs', { timeout: 10000 })
     return response.data.configs || []
   },
 
@@ -22,9 +22,15 @@ export const protectionApi = {
    */
   get: async (serviceName: string): Promise<ProtectionConfig | null> => {
     try {
-      const response = await axios.get(`/api/v1/protection/configs/${encodeURIComponent(serviceName)}`)
+      const response = await axios.get(`/api/v1/protection/configs/${encodeURIComponent(serviceName)}`, { timeout: 10000 })
       return response.data
-    } catch {
+    } catch (error: any) {
+      // 404 表示配置不存在，返回 null
+      if (error.response?.status === 404) {
+        return null
+      }
+      // 其他错误打印日志并返回 null
+      console.error('获取保护配置失败:', error.message || error)
       return null
     }
   },
@@ -37,7 +43,7 @@ export const protectionApi = {
     threshold: number
     timeout: number
   }): Promise<void> => {
-    await axios.put(`/api/v1/protection/configs/${encodeURIComponent(serviceName)}/circuit-breaker`, config)
+    await axios.put(`/api/v1/protection/configs/${encodeURIComponent(serviceName)}/circuit-breaker`, config, { timeout: 10000 })
   },
 
   /**
@@ -47,7 +53,7 @@ export const protectionApi = {
     enabled: boolean
     permits: number
   }): Promise<void> => {
-    await axios.put(`/api/v1/protection/configs/${encodeURIComponent(serviceName)}/rate-limiter`, config)
+    await axios.put(`/api/v1/protection/configs/${encodeURIComponent(serviceName)}/rate-limiter`, config, { timeout: 10000 })
   },
 
   /**
@@ -58,7 +64,7 @@ export const protectionApi = {
     retries: number
     clusterStrategy: string
   }): Promise<void> => {
-    await axios.put(`/api/v1/protection/configs/${encodeURIComponent(serviceName)}/cluster`, config)
+    await axios.put(`/api/v1/protection/configs/${encodeURIComponent(serviceName)}/cluster`, config, { timeout: 10000 })
   },
 
   /**
@@ -87,6 +93,6 @@ export const protectionApi = {
    * 删除保护配置
    */
   delete: async (serviceName: string): Promise<void> => {
-    await axios.delete(`/api/v1/protection/configs/${encodeURIComponent(serviceName)}`)
+    await axios.delete(`/api/v1/protection/configs/${encodeURIComponent(serviceName)}`, { timeout: 10000 })
   }
 }

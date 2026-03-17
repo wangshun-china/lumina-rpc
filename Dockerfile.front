@@ -5,11 +5,11 @@
 
 FROM nginx:alpine
 
-# 复制 GitHub Actions 传过来的 dist 产物
-COPY lumina-dashboard/dist /usr/share/nginx/html
+# 复制 GitHub Actions 传过来的 dist 产物（已复制到根目录）
+COPY dist /usr/share/nginx/html
 
-# 复制 nginx 配置
-COPY lumina-dashboard/nginx.conf /etc/nginx/conf.d/default.conf
+# 复制 nginx 配置（已复制到根目录）
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 80
 

@@ -213,6 +213,7 @@ public class ProtectionConfigClient {
      */
     public ProtectionConfig getConfig(String serviceName) {
         ProtectionConfig config = configCache.get(serviceName);
+
         if (config == null) {
             // 返回默认配置
             config = new ProtectionConfig(serviceName);
@@ -244,7 +245,7 @@ public class ProtectionConfigClient {
         config.setRateLimiterPermits(((Number) map.getOrDefault("rateLimiterPermits", 100)).intValue());
         config.setClusterStrategy((String) map.getOrDefault("clusterStrategy", "failover"));
         config.setRetries(((Number) map.getOrDefault("retries", 3)).intValue());
-        config.setTimeout(((Number) map.getOrDefault("timeout", 0)).longValue());
+        config.setTimeout(((Number) map.getOrDefault("timeoutMs", 0)).longValue());
         return config;
     }
 
@@ -261,6 +262,17 @@ public class ProtectionConfigClient {
     public void clearCache() {
         configCache.clear();
         localVersion = 0;
+    }
+
+    /**
+     * 重置单例（用于测试）
+     */
+    public static synchronized void reset() {
+        if (instance != null) {
+            instance.stopRefresh();
+            instance.clearCache();
+            instance = null;
+        }
     }
 
     /**

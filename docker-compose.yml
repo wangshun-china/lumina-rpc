@@ -30,6 +30,12 @@ services:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
       - --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-ulumina", "-plumina123"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     deploy:
       resources:
         limits:
@@ -54,7 +60,14 @@ services:
     networks:
       - lumina-net
     depends_on:
-      - mysql
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     deploy:
       resources:
         limits:
@@ -77,9 +90,15 @@ services:
     ports:
       - "3000:80"
     depends_on:
-      - control-plane
+      control-plane:
+        condition: service_healthy
     networks:
       - lumina-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     deploy:
       resources:
         limits:
@@ -103,7 +122,14 @@ services:
     networks:
       - lumina-net
     depends_on:
-      - control-plane
+      control-plane:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     deploy:
       resources:
         limits:
@@ -127,7 +153,14 @@ services:
     networks:
       - lumina-net
     depends_on:
-      - control-plane
+      control-plane:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8082/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     deploy:
       resources:
         limits:
@@ -150,9 +183,18 @@ services:
     networks:
       - lumina-net
     depends_on:
-      - control-plane
-      - sample-engine
-      - sample-radar
+      control-plane:
+        condition: service_healthy
+      sample-engine:
+        condition: service_healthy
+      sample-radar:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8083/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     deploy:
       resources:
         limits:

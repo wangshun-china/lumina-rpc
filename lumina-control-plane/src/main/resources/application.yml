@@ -4,6 +4,9 @@ server:
 spring:
   application:
     name: lumina-control-plane
+  # 默认使用 dev profile，生产环境通过 SPRING_PROFILES_ACTIVE 环境变量覆盖
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
 
   # 数据库配置：支持环境变量覆盖，本地开发默认 localhost
   datasource:

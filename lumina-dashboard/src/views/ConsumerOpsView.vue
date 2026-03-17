@@ -81,33 +81,50 @@
 
         <!-- 智能参数表单 -->
         <div class="flex-1 overflow-y-auto">
-          <!-- 集群策略配置 -->
+          <!-- 集群策略配置（只读展示） -->
           <div v-if="testForm.serviceName" class="mb-4 p-3 bg-slate-800/30 rounded-lg border border-slate-700">
             <label class="block text-sm font-medium text-slate-300 mb-3">
-              <span class="text-purple-400">⚙</span> 高级配置
+              <span class="text-purple-400">⚙</span> 集群策略配置
             </label>
-            <div class="grid grid-cols-2 gap-3">
+            <div class="grid grid-cols-3 gap-3">
               <div>
                 <label class="text-xs text-slate-500 mb-1 block">集群策略</label>
-                <el-select v-model="testForm.cluster" size="small" class="w-full">
-                  <el-option label="Failover (自动重试)" value="failover" />
-                  <el-option label="Failfast (快速失败)" value="failfast" />
-                  <el-option label="Failsafe (静默失败)" value="failsafe" />
-                  <el-option label="Forking (并行调用)" value="forking" />
-                </el-select>
+                <div class="text-sm text-white px-3 py-1.5 bg-slate-700/50 rounded border border-slate-600">
+                  <span :class="[
+                    'text-xs font-medium',
+                    currentServiceProtection?.clusterStrategy === 'failover' ? 'text-blue-400' :
+                    currentServiceProtection?.clusterStrategy === 'failfast' ? 'text-amber-400' :
+                    currentServiceProtection?.clusterStrategy === 'failsafe' ? 'text-emerald-400' :
+                    currentServiceProtection?.clusterStrategy === 'forking' ? 'text-purple-400' : 'text-slate-400'
+                  ]">
+                    {{ currentServiceProtection?.clusterStrategy?.toUpperCase() || 'FAILOVER' }}
+                  </span>
+                </div>
+              </div>
+              <div>
+                <label class="text-xs text-slate-500 mb-1 block">超时时间</label>
+                <div class="text-sm text-slate-300 px-3 py-1.5 bg-slate-700/50 rounded border border-slate-600">
+                  {{ currentServiceProtection?.timeoutMs || 0 }}ms
+                </div>
               </div>
               <div>
                 <label class="text-xs text-slate-500 mb-1 block">重试次数</label>
-                <el-input-number v-model="testForm.retries" :min="0" :max="10" size="small" class="w-full" />
+                <div class="text-sm text-slate-300 px-3 py-1.5 bg-slate-700/50 rounded border border-slate-600">
+                  {{ currentServiceProtection?.retries || 3 }}
+                </div>
               </div>
             </div>
 
             <div class="mt-2 text-xs text-slate-500">
-              <span v-if="testForm.cluster === 'failover'">💡 失败时自动切换其他服务器重试</span>
-              <span v-else-if="testForm.cluster === 'failfast'">💡 快速失败，适合非幂等操作</span>
-              <span v-else-if="testForm.cluster === 'failsafe'">💡 失败时静默处理，不影响主流程</span>
-              <span v-else-if="testForm.cluster === 'forking'">💡 并行调用多服务器，取最快响应</span>
+              <span v-if="currentServiceProtection?.clusterStrategy === 'failover' || !currentServiceProtection?.clusterStrategy">💡 Failover: 失败时自动切换其他服务器重试</span>
+              <span v-else-if="currentServiceProtection?.clusterStrategy === 'failfast'">💡 Failfast: 快速失败，适合非幂等操作</span>
+              <span v-else-if="currentServiceProtection?.clusterStrategy === 'failsafe'">💡 Failsafe: 失败时静默处理，不影响主流程</span>
+              <span v-else-if="currentServiceProtection?.clusterStrategy === 'forking'">💡 Forking: 并行调用多服务器，取最快响应</span>
             </div>
+
+            <router-link to="/protection" class="text-xs text-cyan-400 hover:text-cyan-300 mt-2 inline-block">
+              前往服务保护配置修改 →
+            </router-link>
           </div>
 
           <!-- 熔断器/限流器状态卡片（只读展示） -->
@@ -767,7 +784,7 @@ const startAutoRefresh = () => {
         loadCurrentServiceProtection()
       }
     }
-  }, 1000)
+  }, 5000) // 5秒刷新间隔，避免给后端造成过大压力
 }
 
 onMounted(async () => {

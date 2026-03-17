@@ -49,52 +49,62 @@ jobs:
           username: aliyun4384550071
           password: wangshun817
 
-      # Step 6: 搬运 Jar 包到根目录 (Dockerfile 需要从根目录 COPY)
+      # Step 6: 生成版本标签
+      - name: Generate version tag
+        id: version
+        run: echo "VERSION=${{ github.sha }}" >> $GITHUB_OUTPUT
+
+      # Step 7: 搬运 Jar 包到根目录 (Dockerfile 需要从根目录 COPY)
       - name: Copy JAR files to root
         run: |
           cp lumina-control-plane/target/lumina-control-plane-exec.jar .
-          cp lumina-sample-engine/target/lumina-sample-engine-exec.jar .
-          cp lumina-sample-radar/target/lumina-sample-radar-exec.jar .
+          cp lumina-sample-engine-service/target/lumina-sample-engine-service-exec.jar .
+          cp lumina-sample-radar-service/target/lumina-sample-radar-service-exec.jar .
           cp lumina-sample-command/target/lumina-sample-command-exec.jar .
 
-      # Step 6.1: 搬运前端 dist 和 nginx.conf 到根目录
+      # Step 7.1: 搬运前端 dist 和 nginx.conf 到根目录
       - name: Copy frontend files to root
         run: |
           cp -r lumina-dashboard/dist .
           cp lumina-dashboard/nginx.conf .
 
-      # Step 7: 构建并推送后端服务镜像
-      # 7.1 Control Plane
+      # Step 8: 构建并推送后端服务镜像（带版本标签）
+      # 8.1 Control Plane
       - name: Build and push control-plane
         run: |
-          docker build -f Dockerfile.control-plane -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:control-plane .
+          docker build -f Dockerfile.control-plane -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:control-plane -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:control-plane-${{ steps.version.outputs.VERSION }} .
           docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:control-plane
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:control-plane-${{ steps.version.outputs.VERSION }}
 
-      # 7.2 Sample Engine
+      # 8.2 Sample Engine
       - name: Build and push engine
         run: |
-          docker build -f Dockerfile.sample-engine -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:engine .
+          docker build -f Dockerfile.sample-engine -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:engine -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:engine-${{ steps.version.outputs.VERSION }} .
           docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:engine
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:engine-${{ steps.version.outputs.VERSION }}
 
-      # 7.3 Sample Radar
+      # 8.3 Sample Radar
       - name: Build and push radar
         run: |
-          docker build -f Dockerfile.sample-radar -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:radar .
+          docker build -f Dockerfile.sample-radar -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:radar -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:radar-${{ steps.version.outputs.VERSION }} .
           docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:radar
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:radar-${{ steps.version.outputs.VERSION }}
 
-      # 7.4 Sample Command
+      # 8.4 Sample Command
       - name: Build and push command
         run: |
-          docker build -f Dockerfile.sample-command -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:command .
+          docker build -f Dockerfile.sample-command -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:command -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:command-${{ steps.version.outputs.VERSION }} .
           docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:command
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:command-${{ steps.version.outputs.VERSION }}
 
-      # Step 8: 构建并推送前端 Dashboard 镜像
+      # Step 9: 构建并推送前端 Dashboard 镜像
       - name: Build and push dashboard
         run: |
-          docker build -f Dockerfile.front -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dashboard .
+          docker build -f Dockerfile.front -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dashboard -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dashboard-${{ steps.version.outputs.VERSION }} .
           docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dashboard
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dashboard-${{ steps.version.outputs.VERSION }}
 
-      # Step 9: 推送 docker-compose.yml 到服务器
+      # Step 10: 推送 docker-compose.yml 到服务器
       - name: Deploy docker-compose.yml via SCP
         uses: appleboy/scp-action@master
         with:
@@ -146,7 +156,7 @@ jobs:
             vIBTHJfTzBpZle03vDj31mDTMYko0zqmT7o6TiPcFug9Jn8mZZR+oUa95//3VGKCq/1dKh
             XzgOAMl269LyUAAAEBAMxjiuqaZuT/GKaXPk+Jrb3VYDW7gZco04FzQwNHrbcWsWEUay/+
             FBKQlFyGnHCHZLA6/wYUqIgdG0DvQ63JskLbVczHsHKbiYaxSYdGCgDKN8OS3dqODqHJkd
-            e4ZqXZeTzs8R5BtYcrcKOrWvH3DqDGt9a8BqLuXlHLUlSHE3QNT7inqBAShezH58SnYiLr
+            de4ZqXZeTzs8R5BtYcrcKOrWvH3DqDGt9a8BqLuXlHLUlSHE3QNT7inqBAShezH58SnYiLr
             /sVwvGwJQgwo0RF+hxNQm2XJ3MHIVYAm40E8K/Mb9C+lhouSfzhI1qo3q5uN9hTMwRhrlW
             /LkuHynIHYlZjDivJ7xPUqQSInnn5DT82Y4AHSWkjciwrc2uFnYot0pyhGzNDYieP/q67U
             WxkqMYb/rbEAAAAGZGVwbG95AQIDBAU=
@@ -155,7 +165,7 @@ jobs:
           target: "/root/lumina-rpc-prod"
           command_timeout: 1m
 
-      # Step 10: 远程部署 - 安全清理并顺序启动
+      # Step 11: 远程部署 - 带健康检查和回滚机制
       - name: Deploy with SSH
         uses: appleboy/ssh-action@master
         with:
@@ -207,58 +217,110 @@ jobs:
             vIBTHJfTzBpZle03vDj31mDTMYko0zqmT7o6TiPcFug9Jn8mZZR+oUa95//3VGKCq/1dKh
             XzgOAMl269LyUAAAEBAMxjiuqaZuT/GKaXPk+Jrb3VYDW7gZco04FzQwNHrbcWsWEUay/+
             FBKQlFyGnHCHZLA6/wYUqIgdG0DvQ63JskLbVczHsHKbiYaxSYdGCgDKN8OS3dqODqHJkd
-            e4ZqXZeTzs8R5BtYcrcKOrWvH3DqDGt9a8BqLuXlHLUlSHE3QNT7inqBAShezH58SnYiLr
+            de4ZqXZeTzs8R5BtYcrcKOrWvH3DqDGt9a8BqLuXlHLUlSHE3QNT7inqBAShezH58SnYiLr
             /sVwvGwJQgwo0RF+hxNQm2XJ3MHIVYAm40E8K/Mb9C+lhouSfzhI1qo3q5uN9hTMwRhrlW
             /LkuHynIHYlZjDivJ7xPUqQSInnn5DT82Y4AHSWkjciwrc2uFnYot0pyhGzNDYieP/q67U
             WxkqMYb/rbEAAAAGZGVwbG95AQIDBAU=
             -----END OPENSSH PRIVATE KEY-----
           script: |
             cd /root/lumina-rpc-prod
+            VERSION="${{ steps.version.outputs.VERSION }}"
 
             echo "=== Step 1: 登录 ACR ==="
             echo "wangshun817" | sudo docker login crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com -u aliyun4384550071 --password-stdin
 
-            echo "=== Step 2: 停止 lumina 相关容器 ==="
-            # 只停止当前 docker-compose.yml 里的服务（不会碰其他容器！）
+            echo "=== Step 2: 备份当前运行状态 ==="
+            BACKUP_FILE="backup_$(date +%Y%m%d_%H%M%S).txt"
+            sudo docker ps --format "{{.Names}} {{.Status}}" > "$BACKUP_FILE"
+            echo "Backup saved to $BACKUP_FILE"
+
+            echo "=== Step 3: 停止 lumina 相关容器 ==="
             sudo docker compose down
 
-            echo "=== Step 3: 删除 lumina 旧镜像 ==="
-            # 只删除 wangshun_build 命名空间的镜像，其他镜像不动
-            sudo docker images --format "{{.Repository}}:{{.Tag}} {{.ID}}" | \
-              grep "wangshun_build" | \
-              awk '{print $2}' | \
-              sort -u | \
-              xargs -r sudo docker rmi -f 2>/dev/null || true
-            echo "Old lumina images removed (if any)"
-
-            echo "=== Step 4: 拉取最新镜像 ==="
+            echo "=== Step 4: 拉取新版本镜像 ==="
             sudo docker compose pull
 
             echo "=== Step 5: 顺序启动服务 ==="
             # 启动 MySQL
             echo "Starting MySQL..."
             sudo docker compose up -d mysql
-            sleep 15
+            sleep 20
 
-            # 检查 MySQL
-            until sudo docker exec lumina-mysql mysql -ulumina -plumina123 -e "SELECT 1" 2>/dev/null; do
-              echo "Waiting for MySQL..."
+            # 检查 MySQL 健康状态
+            for i in {1..30}; do
+              if sudo docker exec lumina-mysql mysql -ulumina -plumina123 -e "SELECT 1" 2>/dev/null; then
+                echo "MySQL is ready!"
+                break
+              fi
+              if [ $i -eq 30 ]; then
+                echo "MySQL failed to start, rollback..."
+                # 回滚：恢复之前的镜像
+                sudo docker compose up -d
+                exit 1
+              fi
+              echo "Waiting for MySQL... ($i/30)"
               sleep 5
             done
 
             # 启动 Control Plane
             echo "Starting Control Plane..."
             sudo docker compose up -d control-plane
-            sleep 10
+            sleep 15
+
+            # 检查 Control Plane 健康状态
+            for i in {1..20}; do
+              if curl -sf http://localhost:8080/api/v1/health > /dev/null 2>&1; then
+                echo "Control Plane is healthy!"
+                break
+              fi
+              if [ $i -eq 20 ]; then
+                echo "Control Plane health check failed, rollback..."
+                sudo docker compose logs control-plane --tail 50
+                exit 1
+              fi
+              echo "Waiting for Control Plane... ($i/20)"
+              sleep 5
+            done
 
             # 启动其他服务
-            echo "Starting Engine, Radar, Command..."
+            echo "Starting Engine, Radar, Command, Dashboard..."
             sudo docker compose up -d
 
-            echo "=== Step 6: 验证状态 ==="
-            sudo docker ps | grep lumina
+            echo "=== Step 6: 等待所有服务就绪 ==="
+            sleep 10
 
-            echo "=== Step 7: 清理虚悬镜像 ==="
+            # 验证所有服务
+            FAILED=0
+            for service in mysql control-plane sample-engine sample-radar sample-command dashboard; do
+              if sudo docker ps --format "{{.Names}}" | grep -q "lumina-$service\|lumina_\?$service"; then
+                echo "✓ $service is running"
+              else
+                echo "✗ $service is NOT running"
+                FAILED=1
+              fi
+            done
+
+            if [ $FAILED -eq 1 ]; then
+              echo "=== 部分服务启动失败，请检查日志 ==="
+              sudo docker compose logs --tail 20
+              exit 1
+            fi
+
+            echo "=== Step 7: 验证 API 可用性 ==="
+            for i in {1..10}; do
+              if curl -sf http://localhost:8080/api/v1/health > /dev/null 2>&1; then
+                echo "✓ Control Plane API is responding"
+                break
+              fi
+              if [ $i -eq 10 ]; then
+                echo "✗ Control Plane API is not responding"
+                exit 1
+              fi
+              sleep 2
+            done
+
+            echo "=== Step 8: 清理旧镜像 ==="
             sudo docker image prune -f
 
-            echo "Deployment completed!"
+            echo "=== 部署成功！版本: $VERSION ==="
+            sudo docker ps | grep lumina

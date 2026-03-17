@@ -164,11 +164,16 @@
             <div>
               <label class="block text-xs text-slate-400 mb-1">错误率阈值 (%)</label>
               <el-input-number v-model="form.circuitBreakerThreshold" :min="1" :max="100" class="w-full" />
+              <p class="text-xs text-slate-500 mt-1">滑动窗口内错误率超过此值时触发熔断</p>
             </div>
             <div>
               <label class="block text-xs text-slate-400 mb-1">恢复时间 (ms)</label>
               <el-input-number v-model="form.circuitBreakerTimeout" :min="1000" :max="300000" :step="1000" class="w-full" />
+              <p class="text-xs text-slate-500 mt-1">熔断后等待多久进入半开状态试探</p>
             </div>
+          </div>
+          <div v-else class="text-xs text-slate-500">
+            💡 熔断器关闭时将不进行错误率统计和自动熔断保护
           </div>
         </div>
 
@@ -185,6 +190,10 @@
           <div v-if="form.rateLimiterEnabled">
             <label class="block text-xs text-slate-400 mb-1">每秒请求数 (QPS)</label>
             <el-input-number v-model="form.rateLimiterPermits" :min="1" :max="100000" class="w-full" />
+            <p class="text-xs text-slate-500 mt-1">超过此阈值的请求将被直接拒绝，用于保护后端服务不被过载</p>
+          </div>
+          <div v-else class="text-xs text-slate-500">
+            💡 限流器关闭时不会限制请求流量，后端服务可能面临过载风险
           </div>
         </div>
 
@@ -202,6 +211,7 @@
                 <el-option label="Failover (失败重试)" value="failover" />
                 <el-option label="Failfast (快速失败)" value="failfast" />
                 <el-option label="Failsafe (失败安全)" value="failsafe" />
+                <el-option label="Forking (并行调用)" value="forking" />
               </el-select>
             </div>
             <div>

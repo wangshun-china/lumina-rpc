@@ -39,7 +39,22 @@ axios.interceptors.response.use(
     return response
   },
   (error) => {
-    console.error('HTTP Error:', error)
+    // 统一错误处理
+    const status = error.response?.status
+    const message = error.response?.data?.message || error.message
+
+    if (error.code === 'ECONNABORTED') {
+      console.error('请求超时:', error.config?.url)
+    } else if (status === 401) {
+      console.error('未授权访问')
+    } else if (status === 404) {
+      // 404 通常不需要打印错误，由调用方处理
+    } else if (status >= 500) {
+      console.error('服务器错误:', status, message)
+    } else {
+      console.error('HTTP Error:', status, message)
+    }
+
     return Promise.reject(error)
   }
 )

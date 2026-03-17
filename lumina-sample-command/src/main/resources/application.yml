@@ -9,6 +9,16 @@ spring:
     scheduling:
       enabled: true
 
+# Actuator 配置（健康检查）
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+
 # Lumina RPC 配置
 lumina:
   rpc:
@@ -28,7 +38,7 @@ lumina:
     mock:
       enabled: true
       # 订阅 Radar 和 Engine 服务的 Mock 规则
-      subscribe-services: com.lumina.sample.radar.service.RadarService,com.lumina.sample.engine.service.EngineService
+      subscribe-services: com.lumina.sample.radar.api.RadarService,com.lumina.sample.engine.api.EngineService
 
 # 日志配置
 logging:

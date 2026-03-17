@@ -10,14 +10,14 @@ WORKDIR /app
 RUN addgroup -S lumina && adduser -S lumina -G lumina
 
 # 复制 GitHub Actions 传过来的 Fat JAR
-COPY lumina-sample-engine-exec.jar app.jar
+COPY lumina-sample-engine-service-exec.jar app.jar
 
 RUN chown -R lumina:lumina /app
 USER lumina
 
 ENV JAVA_OPTS="-Xms128m -Xmx256m"
 
-EXPOSE 20880
+EXPOSE 8081 9081
 
 RUN mkdir -p /app/config
 

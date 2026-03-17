@@ -1,0 +1,49 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: lumina-control-plane
+
+  # 数据库配置：支持环境变量覆盖，本地开发默认 localhost
+  datasource:
+    url: ${MYSQL_URL:jdbc:mysql://localhost:3306/lumina?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&connectTimeout=30000&socketTimeout=60000&allowPublicKeyRetrieval=true}
+    username: ${MYSQL_USER:lumina}
+    password: ${MYSQL_PASSWORD:lumina123}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      connection-timeout: 30000  # 30秒连接超时
+      validation-timeout: 5000   # 5秒验证超时
+      max-lifetime: 600000       # 10分钟最大生命周期
+      maximum-pool-size: 10      # 最大连接池大小
+      minimum-idle: 2            # 最小空闲连接数
+
+  # JPA 配置（本地开发）
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.MySQLDialect
+        jdbc:
+          time_zone: Asia/Shanghai
+        connection:
+          release_mode: after_transaction
+    open-in-view: false
+
+# 日志配置
+logging:
+  level:
+    com.lumina.controlplane: DEBUG
+    org.springframework.web: INFO
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+
+# 自定义配置
+lumina:
+  control-plane:
+    sse:
+      timeout: 1800000  # 30分钟 (毫秒)
+      heartbeat-interval: 30  # 30秒心跳

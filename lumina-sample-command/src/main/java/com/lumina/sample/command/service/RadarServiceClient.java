@@ -1,7 +1,7 @@
 package com.lumina.sample.command.service;
 
 import com.lumina.rpc.core.annotation.LuminaReference;
-import com.lumina.sample.radar.service.RadarService;
+import com.lumina.sample.radar.api.RadarService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 

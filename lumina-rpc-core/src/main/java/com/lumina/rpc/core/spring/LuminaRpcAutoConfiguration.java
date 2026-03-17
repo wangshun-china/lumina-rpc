@@ -85,7 +85,7 @@ public class LuminaRpcAutoConfiguration {
 
     /**
      * 需要订阅 Mock 规则的服务列表（逗号分隔）
-     * 例如: com.lumina.sample.radar.service.RadarService,com.lumina.sample.engine.service.EngineService
+     * 例如: com.lumina.sample.radar.api.RadarService,com.lumina.sample.engine.api.EngineService
      */
     @Value("${lumina.rpc.mock.subscribe-services:}")
     private String mockSubscribeServices;

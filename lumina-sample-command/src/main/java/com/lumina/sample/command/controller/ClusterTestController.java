@@ -1,7 +1,7 @@
 package com.lumina.sample.command.controller;
 
 import com.lumina.sample.command.service.ClusterTestClient;
-import com.lumina.sample.engine.service.EngineService;
+import com.lumina.sample.engine.api.EngineService;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;

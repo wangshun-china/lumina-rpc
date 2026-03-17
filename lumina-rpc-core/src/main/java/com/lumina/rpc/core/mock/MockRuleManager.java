@@ -1,5 +1,6 @@
 package com.lumina.rpc.core.mock;
 
+import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -49,6 +50,21 @@ public class MockRuleManager {
     }
 
     /**
+     * 清空所有规则（用于测试或重置）
+     */
+    public void clearAllRules() {
+        ruleCache.clear();
+        logger.info("All mock rules cleared");
+    }
+
+    /**
+     * 重置单例（仅用于测试）
+     */
+    public static void reset() {
+        INSTANCE.clearAllRules();
+    }
+
+    /**
      * 检查是否有启用的 Mock 规则
      */
     public boolean hasMockRule(String serviceName, String methodName) {
@@ -78,6 +94,7 @@ public class MockRuleManager {
      */
     public MockRule getMatchingRule(String serviceName, String methodName, Object[] args) {
         List<MockRule> rules = ruleCache.get(serviceName);
+
         if (rules == null || rules.isEmpty()) {
             logger.debug("🔍 Mock检查: [{}.{}] -> 规则缓存为空", serviceName, methodName);
             return null;
@@ -598,9 +615,9 @@ public class MockRuleManager {
             // 递归合并，并处理占位符
             JsonNode mergedNode = mergeJsonWithPlaceholders(realNode, mockNode);
 
-            // 转换为目标类型
+            // 转换为目标类型 - 增强版，支持复杂类型
             try {
-                return objectMapper.treeToValue(mergedNode, returnType);
+                return convertJsonNodeToTargetType(mergedNode, returnType, realResponse);
             } catch (Exception e) {
                 logger.error("❌ TAMPER 模式类型转换失败: {}, 回退至真实响应", e.getMessage());
                 return realResponse;
@@ -611,6 +628,143 @@ public class MockRuleManager {
             logger.error("❌ TAMPER 模式合并失败: {}, 回退至真实响应", e.getMessage(), e);
             return realResponse;
         }
+    }
+
+    /**
+     * 将 JsonNode 转换为目标类型，支持复杂类型和泛型
+     *
+     * @param node 要转换的 JSON 节点
+     * @param targetType 目标类型
+     * @param originalObject 原始对象（用于推断泛型信息）
+     * @return 转换后的对象
+     */
+    private Object convertJsonNodeToTargetType(JsonNode node, Class<?> targetType, Object originalObject) throws Exception {
+        // 基本情况处理
+        if (node == null || node.isNull()) {
+            return null;
+        }
+
+        // 如果目标类型就是 JsonNode，直接返回
+        if (targetType == JsonNode.class) {
+            return node;
+        }
+
+        // 尝试标准转换
+        try {
+            return objectMapper.treeToValue(node, targetType);
+        } catch (Exception e) {
+            // 标准转换失败，尝试更智能的转换
+            logger.debug("标准 treeToValue 转换失败，尝试智能转换: {}", e.getMessage());
+        }
+
+        // 智能转换策略
+
+        // 1. 如果原始对象存在且类型匹配，尝试将 node 转换为该类型
+        if (originalObject != null) {
+            Class<?> originalClass = originalObject.getClass();
+
+            // 如果目标类型是原始对象的类型或父类/接口
+            if (targetType.isAssignableFrom(originalClass)) {
+                try {
+                    // 尝试转换为原始对象的具体类型
+                    Object result = objectMapper.treeToValue(node, originalClass);
+                    if (result != null && targetType.isInstance(result)) {
+                        return result;
+                    }
+                } catch (Exception ignored) {
+                    // 继续尝试其他方法
+                }
+            }
+
+            // 2. 处理集合类型 - 尝试保留原始集合的泛型信息
+            if (Collection.class.isAssignableFrom(targetType) && originalObject instanceof Collection) {
+                return convertToCollection(node, targetType, (Collection<?>) originalObject);
+            }
+
+            // 3. 处理 Map 类型
+            if (Map.class.isAssignableFrom(targetType) && originalObject instanceof Map) {
+                return convertToMap(node, targetType, (Map<?, ?>) originalObject);
+            }
+        }
+
+        // 4. 处理集合类型（无原始对象信息时）
+        if (Collection.class.isAssignableFrom(targetType)) {
+            return convertToCollection(node, targetType, null);
+        }
+
+        // 5. 处理 Map 类型（无原始对象信息时）
+        if (Map.class.isAssignableFrom(targetType)) {
+            return convertToMap(node, targetType, null);
+        }
+
+        // 6. 尝试使用 convertValue 作为最后手段
+        try {
+            return objectMapper.convertValue(node, targetType);
+        } catch (Exception e) {
+            logger.debug("convertValue 也失败了: {}", e.getMessage());
+        }
+
+        // 所有方法都失败了，抛出异常
+        throw new IllegalArgumentException("无法将 JSON 转换为类型: " + targetType.getName());
+    }
+
+    /**
+     * 转换 JsonNode 为 Collection 类型
+     */
+    @SuppressWarnings("unchecked")
+    private Object convertToCollection(JsonNode node, Class<?> targetType, Collection<?> originalCollection) throws Exception {
+        if (!node.isArray()) {
+            throw new IllegalArgumentException("Expected array node for Collection type");
+        }
+
+        // 如果没有原始集合信息，使用默认的 List 类型
+        if (originalCollection == null) {
+            return objectMapper.treeToValue(node, List.class);
+        }
+
+        // 尝试推断元素类型
+        Class<?> elementType = Object.class;
+        if (!originalCollection.isEmpty()) {
+            // 获取第一个元素的类型作为推断
+            elementType = originalCollection.iterator().next().getClass();
+        }
+
+        // 构建带泛型信息的 JavaType
+        JavaType javaType = objectMapper.getTypeFactory()
+                .constructCollectionType((Class<? extends Collection>) targetType, elementType);
+
+        return objectMapper.readValue(node.toString(), javaType);
+    }
+
+    /**
+     * 转换 JsonNode 为 Map 类型
+     */
+    @SuppressWarnings("unchecked")
+    private Object convertToMap(JsonNode node, Class<?> targetType, Map<?, ?> originalMap) throws Exception {
+        if (!node.isObject()) {
+            throw new IllegalArgumentException("Expected object node for Map type");
+        }
+
+        // 如果没有原始 Map 信息，使用默认的 Map 类型
+        if (originalMap == null) {
+            return objectMapper.treeToValue(node, Map.class);
+        }
+
+        // 尝试推断键值类型
+        Class<?> keyType = String.class;
+        Class<?> valueType = Object.class;
+
+        if (!originalMap.isEmpty()) {
+            Map.Entry<?, ?> firstEntry = originalMap.entrySet().iterator().next();
+            keyType = firstEntry.getKey().getClass();
+            valueType = firstEntry.getValue().getClass();
+        }
+
+        // 构建带泛型信息的 JavaType
+        JavaType javaType = objectMapper.getTypeFactory()
+                .constructMapType((Class<? extends Map>) targetType, keyType, valueType);
+
+        return objectMapper.readValue(node.toString(), javaType);
     }
 
     /**
