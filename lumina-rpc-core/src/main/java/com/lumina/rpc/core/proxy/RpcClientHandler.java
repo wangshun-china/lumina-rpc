@@ -13,9 +13,9 @@ import com.lumina.rpc.protocol.RpcMessage;
 import com.lumina.rpc.protocol.RpcRequest;
 import com.lumina.rpc.protocol.RpcResponse;
 import com.lumina.rpc.protocol.spi.JsonSerializer;
+import com.lumina.rpc.protocol.spi.SerializerManager;
 import com.lumina.rpc.core.spi.LoadBalancer;
 import com.lumina.rpc.core.spi.LoadBalancerManager;
-import com.lumina.rpc.protocol.spi.Serializer;
 import com.lumina.rpc.protocol.transport.NettyClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -81,9 +81,6 @@ public class RpcClientHandler implements InvocationHandler {
     // 限流阈值
     private final int rateLimitPermits;
 
-    // 序列化器
-    private final Serializer serializer;
-
     // ObjectMapper（用于类型转换兜底）
     private final ObjectMapper objectMapper;
 
@@ -103,20 +100,20 @@ public class RpcClientHandler implements InvocationHandler {
     private final MockRuleManager mockRuleManager;
 
     public RpcClientHandler(Class<?> interfaceClass, String version, long timeout,
-                            Serializer serializer, NettyClient nettyClient) {
-        this(interfaceClass, version, timeout, false, "failover", 3, serializer, nettyClient,
+                            NettyClient nettyClient) {
+        this(interfaceClass, version, timeout, false, "failover", 3, nettyClient,
                 true, 50, 30000, false, 100);
     }
 
     public RpcClientHandler(Class<?> interfaceClass, String version, long timeout, boolean async,
-                            Serializer serializer, NettyClient nettyClient) {
-        this(interfaceClass, version, timeout, async, "failover", 3, serializer, nettyClient,
+                            NettyClient nettyClient) {
+        this(interfaceClass, version, timeout, async, "failover", 3, nettyClient,
                 true, 50, 30000, false, 100);
     }
 
     public RpcClientHandler(Class<?> interfaceClass, String version, long timeout, boolean async,
-                            String cluster, int retries, Serializer serializer, NettyClient nettyClient) {
-        this(interfaceClass, version, timeout, async, cluster, retries, serializer, nettyClient,
+                            String cluster, int retries, NettyClient nettyClient) {
+        this(interfaceClass, version, timeout, async, cluster, retries, nettyClient,
                 true, 50, 30000, false, 100);
     }
 
@@ -124,7 +121,7 @@ public class RpcClientHandler implements InvocationHandler {
      * 完整构造函数（包含熔断器和限流器配置）
      */
     public RpcClientHandler(Class<?> interfaceClass, String version, long timeout, boolean async,
-                            String cluster, int retries, Serializer serializer, NettyClient nettyClient,
+                            String cluster, int retries, NettyClient nettyClient,
                             boolean enableCircuitBreaker, int circuitBreakerThreshold, long circuitBreakerTimeout,
                             boolean enableRateLimit, int rateLimitPermits) {
         this.interfaceClass = interfaceClass;
@@ -138,14 +135,14 @@ public class RpcClientHandler implements InvocationHandler {
         this.circuitBreakerTimeout = circuitBreakerTimeout;
         this.enableRateLimit = enableRateLimit;
         this.rateLimitPermits = rateLimitPermits;
-        this.serializer = serializer;
         this.nettyClient = nettyClient;
         this.loadBalancer = LoadBalancerManager.getDefaultLoadBalancer();
         this.requestIdGenerator = RequestIdGenerator.getInstance();
         this.pendingRequestManager = PendingRequestManager.getInstance();
-        // 获取 ObjectMapper（用于类型转换兜底）
-        this.objectMapper = (serializer instanceof JsonSerializer)
-                ? ((JsonSerializer) serializer).getObjectMapper()
+        // 获取 ObjectMapper（用于类型转换兜底，从默认序列化器获取）
+        var defaultSerializer = SerializerManager.getDefaultSerializer();
+        this.objectMapper = (defaultSerializer instanceof JsonSerializer)
+                ? ((JsonSerializer) defaultSerializer).getObjectMapper()
                 : null;
         // 获取 Mock 规则管理器
         this.mockRuleManager = MockRuleManager.getInstance();
@@ -272,7 +269,7 @@ public class RpcClientHandler implements InvocationHandler {
 
             ClusterInvocation invocation = new ClusterInvocation(
                     serviceName, version, request, method.getReturnType(),
-                    instances, loadBalancer, nettyClient, serializer, effectiveTimeout, effectiveRetries,
+                    instances, loadBalancer, nettyClient, effectiveTimeout, effectiveRetries,
                     enableCircuitBreaker, circuitBreakerThreshold, circuitBreakerTimeout,
                     enableRateLimit, rateLimitPermits
             );
@@ -346,7 +343,7 @@ public class RpcClientHandler implements InvocationHandler {
 
         ClusterInvocation invocation = new ClusterInvocation(
                 serviceName, version, request, method.getReturnType(),
-                instances, loadBalancer, nettyClient, serializer, effectiveTimeout, effectiveRetries,
+                instances, loadBalancer, nettyClient, effectiveTimeout, effectiveRetries,
                 enableCircuitBreaker, circuitBreakerThreshold, circuitBreakerTimeout,
                 enableRateLimit, rateLimitPermits
         );

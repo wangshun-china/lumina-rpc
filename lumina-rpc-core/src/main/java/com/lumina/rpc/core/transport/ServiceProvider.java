@@ -5,7 +5,6 @@ import com.lumina.rpc.core.discovery.ServiceRegistryClient;
 import com.lumina.rpc.core.metadata.ServiceMetadataExtractor;
 import com.lumina.rpc.core.shutdown.GracefulShutdownManager;
 import com.lumina.rpc.core.shutdown.ShutdownConfigClient;
-import com.lumina.rpc.protocol.spi.Serializer;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -40,9 +39,6 @@ public class ServiceProvider {
     // 服务注册表
     private ServiceRegistry serviceRegistry;
 
-    // 序列化器
-    private Serializer serializer;
-
     // 端口
     private int port;
 
@@ -58,18 +54,16 @@ public class ServiceProvider {
     // 已发布的服务接口列表（用于元数据提取）
     private final List<Class<?>> publishedInterfaces = new ArrayList<>();
 
-    public ServiceProvider(int port, Serializer serializer) {
+    public ServiceProvider(int port) {
         this.port = port;
-        this.serializer = serializer;
         this.serviceRegistry = new ServiceRegistry();
         // 创建请求处理器
         DefaultRpcRequestHandler requestHandler = new DefaultRpcRequestHandler(serviceRegistry);
-        this.nettyServer = new NettyServer(serializer, requestHandler);
+        this.nettyServer = new NettyServer(requestHandler);
     }
 
     public ServiceProvider() {
         this.port = 0;
-        this.serializer = null;
         this.serviceRegistry = new ServiceRegistry();
         this.nettyServer = null;
     }
@@ -77,26 +71,23 @@ public class ServiceProvider {
     /**
      * 初始化服务提供者（用于无参构造后设置参数）
      *
-     * @param port       端口号
-     * @param serializer 序列化器
+     * @param port 端口号
      */
-    public void init(int port, Serializer serializer) {
-        init(port, serializer, "127.0.0.1");
+    public void init(int port) {
+        init(port, "127.0.0.1");
     }
 
     /**
      * 初始化服务提供者（用于无参构造后设置参数）
      *
-     * @param port       端口号
-     * @param serializer 序列化器
-     * @param host       主机地址
+     * @param port 端口号
+     * @param host 主机地址
      */
-    public void init(int port, Serializer serializer, String host) {
+    public void init(int port, String host) {
         this.port = port;
-        this.serializer = serializer;
         this.host = host;
         DefaultRpcRequestHandler requestHandler = new DefaultRpcRequestHandler(serviceRegistry);
-        this.nettyServer = new NettyServer(serializer, requestHandler);
+        this.nettyServer = new NettyServer(requestHandler);
     }
 
     /**

@@ -17,8 +17,8 @@ public class SerializerManager {
     // 存储所有已注册的序列化器
     private static final ConcurrentHashMap<Byte, Serializer> SERIALIZERS = new ConcurrentHashMap<>();
 
-    // 默认序列化器类型
-    private static volatile byte defaultSerializerType = RpcMessage.JSON;
+    // 默认序列化器类型（KRYO 高性能）
+    private static volatile byte defaultSerializerType = RpcMessage.KRYO;
 
     static {
         // 加载 SPI 实现的序列化器

@@ -181,7 +181,6 @@ public class FailoverCluster implements Cluster {
         CompletableFuture<RpcResponse> responseFuture = RpcInvoker.invokeAsync(
                 address,
                 invocation.getRequest(),
-                invocation.getSerializer(),
                 invocation.getNettyClient(),
                 invocation.getTimeout()
         );

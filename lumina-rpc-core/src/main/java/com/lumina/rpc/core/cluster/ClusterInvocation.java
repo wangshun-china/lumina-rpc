@@ -10,7 +10,6 @@ import com.lumina.rpc.core.exception.RateLimitException;
 import com.lumina.rpc.core.spi.LoadBalancer;
 import com.lumina.rpc.protocol.RpcRequest;
 import com.lumina.rpc.protocol.RpcResponse;
-import com.lumina.rpc.protocol.spi.Serializer;
 import com.lumina.rpc.protocol.transport.NettyClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,6 +23,7 @@ import java.util.function.Supplier;
  *
  * 封装一次 RPC 调用所需的所有信息
  * 集成熔断器和限流器保护
+ * 使用默认序列化器（KRYO）进行消息编码
  *
  * @author Lumina-RPC Team
  * @since 1.2.0
@@ -53,9 +53,6 @@ public class ClusterInvocation {
     /** Netty 客户端 */
     private final NettyClient nettyClient;
 
-    /** 序列化器 */
-    private final Serializer serializer;
-
     /** 超时时间（毫秒） */
     private final long timeout;
 
@@ -84,15 +81,15 @@ public class ClusterInvocation {
     public ClusterInvocation(String serviceName, String version, RpcRequest request,
                              Class<?> returnType, List<ServiceInstance> instances,
                              LoadBalancer loadBalancer, NettyClient nettyClient,
-                             Serializer serializer, long timeout, int retries) {
+                             long timeout, int retries) {
         this(serviceName, version, request, returnType, instances, loadBalancer, nettyClient,
-                serializer, timeout, retries, true, 50, 30000, false, 100);
+                timeout, retries, true, 50, 30000, false, 100);
     }
 
     public ClusterInvocation(String serviceName, String version, RpcRequest request,
                              Class<?> returnType, List<ServiceInstance> instances,
                              LoadBalancer loadBalancer, NettyClient nettyClient,
-                             Serializer serializer, long timeout, int retries,
+                             long timeout, int retries,
                              boolean enableCircuitBreaker, int circuitBreakerThreshold,
                              long circuitBreakerTimeout, boolean enableRateLimit, int rateLimitPermits) {
         this.serviceName = serviceName;
@@ -102,7 +99,6 @@ public class ClusterInvocation {
         this.instances = instances;
         this.loadBalancer = loadBalancer;
         this.nettyClient = nettyClient;
-        this.serializer = serializer;
         this.timeout = timeout;
         this.retries = retries;
         this.enableCircuitBreaker = enableCircuitBreaker;
@@ -240,10 +236,6 @@ public class ClusterInvocation {
         return nettyClient;
     }
 
-    public Serializer getSerializer() {
-        return serializer;
-    }
-
     public long getTimeout() {
         return timeout;
     }
@@ -305,7 +297,7 @@ public class ClusterInvocation {
 
         // 3. 执行调用
         try {
-            RpcResponse response = RpcInvoker.invoke(address, request, serializer, nettyClient, timeout);
+            RpcResponse response = RpcInvoker.invoke(address, request, nettyClient, timeout);
 
             // 4. 记录成功
             if (circuitBreaker != null) {

@@ -5,7 +5,7 @@ import com.lumina.rpc.protocol.RpcRequest;
 import com.lumina.rpc.protocol.RpcResponse;
 import com.lumina.rpc.protocol.common.PendingRequestManager;
 import com.lumina.rpc.protocol.pool.ChannelPoolManager;
-import com.lumina.rpc.protocol.spi.Serializer;
+import com.lumina.rpc.protocol.spi.SerializerManager;
 import com.lumina.rpc.protocol.transport.NettyClient;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFutureListener;
@@ -21,6 +21,7 @@ import java.util.concurrent.TimeUnit;
  *
  * 执行单次 RPC 调用的底层逻辑
  * 集成连接池，实现 Channel 复用
+ * 使用默认序列化器（KRYO）进行消息编码
  *
  * @author Lumina-RPC Team
  * @since 1.2.0
@@ -45,23 +46,21 @@ public class RpcInvoker {
      *
      * @param address   目标地址
      * @param request   RPC 请求
-     * @param serializer 序列化器
      * @param nettyClient Netty 客户端
      * @param timeout   超时时间
      * @return RPC 响应
      */
     public static RpcResponse invoke(InetSocketAddress address, RpcRequest request,
-                                     Serializer serializer, NettyClient nettyClient,
-                                     long timeout) throws Throwable {
+                                     NettyClient nettyClient, long timeout) throws Throwable {
 
         PendingRequestManager pendingManager = PendingRequestManager.getInstance();
         ChannelPoolManager poolManager = ChannelPoolManager.getInstance();
 
-        // 构建 RPC 消息
+        // 构建 RPC 消息，使用默认序列化器类型
         RpcMessage message = new RpcMessage();
         message.setMagicNumber(RpcMessage.MAGIC_NUMBER);
         message.setVersion(RpcMessage.VERSION);
-        message.setSerializerType(serializer.getType());
+        message.setSerializerType(SerializerManager.getDefaultSerializer().getType());
         message.setMessageType(RpcMessage.REQUEST);
         message.setRequestId(request.getRequestId());
         message.setBody(request);
@@ -129,16 +128,16 @@ public class RpcInvoker {
      * 执行异步 RPC 调用（使用连接池）
      */
     public static CompletableFuture<RpcResponse> invokeAsync(InetSocketAddress address, RpcRequest request,
-                                                              Serializer serializer, NettyClient nettyClient,
-                                                              long timeout) {
+                                                              NettyClient nettyClient, long timeout) {
 
         PendingRequestManager pendingManager = PendingRequestManager.getInstance();
         ChannelPoolManager poolManager = ChannelPoolManager.getInstance();
 
+        // 构建 RPC 消息，使用默认序列化器类型
         RpcMessage message = new RpcMessage();
         message.setMagicNumber(RpcMessage.MAGIC_NUMBER);
         message.setVersion(RpcMessage.VERSION);
-        message.setSerializerType(serializer.getType());
+        message.setSerializerType(SerializerManager.getDefaultSerializer().getType());
         message.setMessageType(RpcMessage.REQUEST);
         message.setRequestId(request.getRequestId());
         message.setBody(request);

@@ -83,7 +83,6 @@ public class FailfastCluster implements Cluster {
             RpcResponse response = RpcInvoker.invoke(
                     address,
                     invocation.getRequest(),
-                    invocation.getSerializer(),
                     invocation.getNettyClient(),
                     invocation.getTimeout()
             );

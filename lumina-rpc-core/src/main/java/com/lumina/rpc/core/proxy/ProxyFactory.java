@@ -1,6 +1,5 @@
 package com.lumina.rpc.core.proxy;
 
-import com.lumina.rpc.protocol.spi.Serializer;
 import com.lumina.rpc.protocol.transport.NettyClient;
 import net.bytebuddy.ByteBuddy;
 import net.bytebuddy.implementation.MethodDelegation;
@@ -12,6 +11,7 @@ import org.slf4j.LoggerFactory;
  * 动态代理工厂
  *
  * 使用 ByteBuddy 创建 RPC 接口的动态代理
+ * 使用默认序列化器（KRYO）进行消息编码
  */
 public class ProxyFactory {
 
@@ -20,20 +20,16 @@ public class ProxyFactory {
     // Netty 客户端
     private NettyClient nettyClient;
 
-    // 序列化器
-    private Serializer serializer;
-
     // 默认超时时间
     private final long defaultTimeout;
 
-    public ProxyFactory(NettyClient nettyClient, Serializer serializer, long defaultTimeout) {
+    public ProxyFactory(NettyClient nettyClient, long defaultTimeout) {
         this.nettyClient = nettyClient;
-        this.serializer = serializer;
         this.defaultTimeout = defaultTimeout;
     }
 
-    public ProxyFactory(NettyClient nettyClient, Serializer serializer) {
-        this(nettyClient, serializer, 5000);
+    public ProxyFactory(NettyClient nettyClient) {
+        this(nettyClient, 5000);
     }
 
     /**
@@ -42,7 +38,6 @@ public class ProxyFactory {
      */
     public ProxyFactory() {
         this.nettyClient = null;
-        this.serializer = null;
         this.defaultTimeout = 5000;
     }
 
@@ -51,13 +46,6 @@ public class ProxyFactory {
      */
     public void setNettyClient(NettyClient nettyClient) {
         this.nettyClient = nettyClient;
-    }
-
-    /**
-     * 设置 Serializer (用于无参构造后的依赖注入)
-     */
-    public void setSerializer(Serializer serializer) {
-        this.serializer = serializer;
     }
 
     /**
@@ -139,7 +127,6 @@ public class ProxyFactory {
                     async,
                     cluster,
                     retries,
-                    serializer,
                     nettyClient,
                     enableCircuitBreaker,
                     circuitBreakerThreshold,

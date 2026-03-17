@@ -184,16 +184,16 @@ public class LuminaRpcAutoConfiguration {
      *
      * RPC 客户端，用于发起远程调用。
      * 优雅停机由 NettyClient 自身的 @PreDestroy 方法处理。
+     * 编码器根据消息的 serializerType 动态选择序列化器。
      *
-     * @param serializer 序列化器实例
      * @return NettyClient 实例
      */
     @Bean
     @ConditionalOnMissingBean(NettyClient.class)
-    public NettyClient nettyClient(Serializer serializer) {
+    public NettyClient nettyClient() {
         log.info("🔧 [Lumina-RPC] Registering NettyClient Bean for RPC client connections");
 
-        NettyClient client = new NettyClient(serializer);
+        NettyClient client = new NettyClient();
 
         // 初始化连接池管理器，绑定 ChannelFactory
         ChannelPoolManager poolManager = ChannelPoolManager.getInstance();
@@ -210,14 +210,13 @@ public class LuminaRpcAutoConfiguration {
      * 当 @LuminaReference 注解被发现时，会使用此工厂生成代理实例。
      *
      * @param nettyClient NettyClient 实例
-     * @param serializer Serializer 实例
      * @return ProxyFactory 实例
      */
     @Bean
     @ConditionalOnMissingBean(ProxyFactory.class)
-    public ProxyFactory proxyFactory(NettyClient nettyClient, Serializer serializer) {
+    public ProxyFactory proxyFactory(NettyClient nettyClient) {
         log.info("🔧 [Lumina-RPC] Registering ProxyFactory Bean for RPC client proxy creation");
-        return new ProxyFactory(nettyClient, serializer);
+        return new ProxyFactory(nettyClient);
     }
 
     /**
@@ -226,15 +225,14 @@ public class LuminaRpcAutoConfiguration {
      * 这是 Provider 端的核心组件，用于管理本地服务实例的注册和查找。
      * 优雅停机由 ServiceProvider 自身的 @PreDestroy 方法处理。
      *
-     * @param serializer Serializer 实例
      * @return ServiceProvider 实例
      */
     @Bean
     @ConditionalOnMissingBean(ServiceProvider.class)
-    public ServiceProvider serviceProvider(Serializer serializer) {
+    public ServiceProvider serviceProvider() {
         log.info("🔧 [Lumina-RPC] Registering ServiceProvider Bean for RPC service registration (port={})", serverPort);
         ServiceProvider provider = new ServiceProvider();
-        provider.init(serverPort, serializer, serverHost);
+        provider.init(serverPort, serverHost);
         provider.setControlPlaneUrl(controlPlaneUrl);
         return provider;
     }

@@ -2,7 +2,6 @@ package com.lumina.rpc.core.transport;
 
 import com.lumina.rpc.protocol.codec.RpcDecoder;
 import com.lumina.rpc.protocol.codec.RpcEncoder;
-import com.lumina.rpc.protocol.spi.Serializer;
 import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.*;
 import io.netty.channel.nio.NioEventLoopGroup;
@@ -43,9 +42,6 @@ public class NettyServer {
     // ServerBootstrap
     private final ServerBootstrap serverBootstrap;
 
-    // 序列化器
-    private final Serializer serializer;
-
     // 请求处理器
     private final RpcRequestHandler requestHandler;
 
@@ -58,8 +54,7 @@ public class NettyServer {
     // 关闭标志
     private final AtomicBoolean shutdown = new AtomicBoolean(false);
 
-    public NettyServer(Serializer serializer, RpcRequestHandler requestHandler) {
-        this.serializer = serializer;
+    public NettyServer(RpcRequestHandler requestHandler) {
         this.requestHandler = requestHandler;
         this.bossGroup = new NioEventLoopGroup(1);
         this.workerGroup = new NioEventLoopGroup();
@@ -88,8 +83,8 @@ public class NettyServer {
                         // 解码器（解决粘包/半包）
                         pipeline.addLast(new RpcDecoder());
 
-                        // 编码器
-                        pipeline.addLast(new RpcEncoder(serializer));
+                        // 编码器（动态选择序列化器）
+                        pipeline.addLast(new RpcEncoder());
 
                         // 服务器处理器
                         pipeline.addLast(new NettyServerHandler(requestHandler));

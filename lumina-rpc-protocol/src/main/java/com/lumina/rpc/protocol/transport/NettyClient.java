@@ -3,7 +3,6 @@ package com.lumina.rpc.protocol.transport;
 import com.lumina.rpc.protocol.codec.RpcDecoder;
 import com.lumina.rpc.protocol.codec.RpcEncoder;
 import com.lumina.rpc.protocol.RpcMessage;
-import com.lumina.rpc.protocol.spi.Serializer;
 import com.lumina.rpc.protocol.pool.ChannelPoolManager;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.*;
@@ -50,9 +49,6 @@ public class NettyClient implements ChannelPoolManager.ChannelFactory {
     // Bootstrap
     private final Bootstrap bootstrap;
 
-    // 序列化器
-    private final Serializer serializer;
-
     // 连接池: addressKey(host:port) -> Channel
     private final ConcurrentHashMap<String, Channel> channelPool;
 
@@ -62,8 +58,7 @@ public class NettyClient implements ChannelPoolManager.ChannelFactory {
     // 关闭标志
     private final AtomicBoolean shutdown = new AtomicBoolean(false);
 
-    public NettyClient(Serializer serializer) {
-        this.serializer = serializer;
+    public NettyClient() {
         this.eventLoopGroup = new NioEventLoopGroup();
         this.bootstrap = new Bootstrap();
         this.channelPool = new ConcurrentHashMap<>();
@@ -91,8 +86,8 @@ public class NettyClient implements ChannelPoolManager.ChannelFactory {
                         // 解码器（解决粘包/半包）
                         pipeline.addLast(new RpcDecoder());
 
-                        // 编码器
-                        pipeline.addLast(new RpcEncoder(serializer));
+                        // 编码器（动态选择序列化器）
+                        pipeline.addLast(new RpcEncoder());
 
                         // 客户端处理器
                         pipeline.addLast(new NettyClientHandler());
