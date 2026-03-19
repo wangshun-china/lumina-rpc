@@ -309,7 +309,23 @@
             <!-- 响应结果 -->
             <div class="ml-4">
               <div class="text-xs text-slate-500 mb-1">📥 RESPONSE</div>
+              <!-- 友好的错误展示 -->
+              <div v-if="!record.success && record.response?.type" class="space-y-2">
+                <div :class="record.response.color || 'text-red-400'" class="font-bold text-sm">
+                  {{ record.response.title }}
+                </div>
+                <div class="text-xs text-red-300">{{ record.response.message }}</div>
+                <div v-if="record.response.detail" class="text-xs text-slate-400 bg-slate-800/50 p-2 rounded">
+                  💡 {{ record.response.detail }}
+                </div>
+                <details class="text-xs text-slate-500 mt-2">
+                  <summary class="cursor-pointer hover:text-slate-400">查看原始错误</summary>
+                  <pre class="mt-1 text-xs whitespace-pre-wrap">{{ JSON.stringify(record.response.originalError, null, 2) }}</pre>
+                </details>
+              </div>
+              <!-- 正常响应展示 -->
               <pre
+                v-else
                 class="text-xs whitespace-pre-wrap json-highlight"
                 :class="record.success ? 'text-green-300' : 'text-red-300'"
                 v-html="formatJson(record.response)"
@@ -365,6 +381,15 @@ interface RequestRecord {
   cluster?: string
   retries?: number
   traceId?: string
+}
+
+interface FriendlyError {
+  type: 'rateLimit' | 'circuitBreaker' | 'noProvider' | 'timeout' | 'unknown'
+  title: string
+  message: string
+  detail?: string
+  originalError: any
+  color?: string
 }
 
 const services = ref<ServiceInfo[]>([])
@@ -618,6 +643,80 @@ const buildDisplayArgs = (args: any[]): any => {
   return displayObj
 }
 
+// 解析错误类型并返回友好的错误信息
+interface ParsedError {
+  type: 'rateLimit' | 'circuitBreaker' | 'noProvider' | 'timeout' | 'unknown'
+  title: string
+  message: string
+  detail?: string
+  icon: string
+  color: string
+}
+
+const parseError = (errorMsg: string): ParsedError => {
+  const msg = errorMsg?.toLowerCase() || ''
+
+  // 限流器错误
+  if (msg.includes('rate limit')) {
+    const limitMatch = errorMsg?.match(/limit:\s*(\d+)\/s/)
+    const serviceMatch = errorMsg?.match(/service:\s*([^\s()]+)/)
+    return {
+      type: 'rateLimit',
+      title: '🚦 限流保护触发',
+      message: `请求被限流器拦截`,
+      detail: limitMatch ? `当前服务 QPS 限制: ${limitMatch[1]} 次/秒` : undefined,
+      icon: '🚦',
+      color: 'text-orange-400'
+    }
+  }
+
+  // 熔断器错误
+  if (msg.includes('circuit breaker') || msg.includes('熔断')) {
+    const serviceMatch = errorMsg?.match(/service:\s*([^\s()]+)/)
+    return {
+      type: 'circuitBreaker',
+      title: '⚡ 熔断器已开启',
+      message: `服务熔断保护中，请求被快速拒绝`,
+      detail: '熔断器检测到服务异常率过高，已自动开启保护模式',
+      icon: '⚡',
+      color: 'text-red-400'
+    }
+  }
+
+  // 无可用提供者
+  if (msg.includes('找不到可用的服务提供者') || msg.includes('no provider') || msg.includes('no available')) {
+    return {
+      type: 'noProvider',
+      title: '❌ 无可用服务实例',
+      message: `未找到可用的服务提供者`,
+      detail: '请检查服务是否已注册并处于健康状态',
+      icon: '❌',
+      color: 'text-red-400'
+    }
+  }
+
+  // 超时错误
+  if (msg.includes('timeout') || msg.includes('超时')) {
+    return {
+      type: 'timeout',
+      title: '⏱️ 请求超时',
+      message: `服务调用超时`,
+      detail: '请检查网络连接或服务响应时间',
+      icon: '⏱️',
+      color: 'text-yellow-400'
+    }
+  }
+
+  // 未知错误
+  return {
+    type: 'unknown',
+    title: '❌ 请求失败',
+    message: errorMsg || '未知错误',
+    icon: '❌',
+    color: 'text-red-400'
+  }
+}
+
 // 发送测试请求
 const sendTestRequest = async () => {
   if (!testForm.value.serviceName || !testForm.value.methodName) {
@@ -722,16 +821,32 @@ const sendTestRequest = async () => {
     if (result.success) {
       ElMessage.success(`请求成功 (${duration}ms)`)
     } else {
-      ElMessage.error(result.message || result.error || '请求失败')
+      // 解析错误类型并显示友好提示
+      const parsedError = parseError(result.error || result.message)
+      ElMessage({
+        type: 'error',
+        message: `${parsedError.title}: ${parsedError.message}`,
+        duration: 5000
+      })
     }
   } catch (error: any) {
     const duration = Date.now() - startTime
     lastRequestTime.value = new Date().toLocaleTimeString()
 
-    const errorData = error.response?.data || error.message
+    const errorMsg = error.response?.data?.error || error.response?.data?.message || error.message
+    const parsedError = parseError(errorMsg)
 
     // 优化日志展示：把 args 数组转换成对象显示
     const displayArgs = buildDisplayArgs(testForm.value.args)
+
+    // 构建更友好的错误响应对象
+    const friendlyError = {
+      type: parsedError.type,
+      title: parsedError.title,
+      message: parsedError.message,
+      detail: parsedError.detail,
+      originalError: error.response?.data || error.message
+    }
 
     // 添加到终端
     // 关键：使用深拷贝打断响应式引用，防止旧日志被污染
@@ -739,7 +854,7 @@ const sendTestRequest = async () => {
       serviceName: testForm.value.serviceName,
       methodName: testForm.value.methodName,
       args: displayArgs,
-      response: errorData,
+      response: friendlyError,
       success: false,
       duration,
       timestamp: new Date().toLocaleTimeString(),
@@ -756,11 +871,16 @@ const sendTestRequest = async () => {
 
     testResult.value = {
       success: false,
-      data: errorData,
+      data: friendlyError,
       duration
     }
 
-    ElMessage.error('请求失败: ' + (error.response?.data?.message || error.message))
+    ElMessage({
+      type: 'error',
+      message: `${parsedError.title}: ${parsedError.message}${parsedError.detail ? `\n${parsedError.detail}` : ''}`,
+      duration: 5000,
+      dangerouslyUseHTMLString: false
+    })
   } finally {
     sending.value = false
   }
