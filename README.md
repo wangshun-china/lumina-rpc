@@ -2,7 +2,7 @@
 
 <div align="center">
 
-**面向可观测性的企业级轻量 RPC 框架**
+**面向可观测性的轻量 RPC 框架**
 
 [![Java](https://img.shields.io/badge/Java-21-orange.svg)](https://openjdk.org/)
 [![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.3-brightgreen.svg)](https://spring.io/projects/spring-boot)
@@ -15,24 +15,9 @@
 
 ---
 
-## 面试亮点
-
-> **为什么这个项目值得展示？**
-
-| 亮点 | 说明 |
-|------|------|
-| **自研 RPC 框架** | 从零实现完整的 RPC 通信层，深入理解分布式系统底层原理 |
-| **企业级特性** | 动态服务降级、Mock 规则引擎、熔断限流、链路追踪，对标 Dubbo 核心能力 |
-| **生产级部署** | 完整 CI/CD 流水线，Docker 容器化，MySQL 持久化，已在云服务器运行 |
-| **前后端分离** | Spring Boot 后端 + Vue 3 前端，全栈独立完成 |
-| **架构设计** | 控制面/数据面分离架构，符合云原生设计理念 |
-| **深度优化** | 自定义协议解决粘包、连接池复用、滑动窗口熔断、SPI 可扩展设计 |
-
----
-
 ## 项目简介
 
-**Lumina-RPC** 是一款包含「核心通信 SDK」、「云端控制面」与「可视化监控面板」的企业级轻量 RPC 框架。
+**Lumina-RPC** 是一款包含「核心通信 SDK」、「云端控制面」与「可视化监控面板」的轻量 RPC 框架。
 
 ### 核心能力
 
@@ -42,7 +27,7 @@
 - **负载均衡**：SPI 机制支持 5 种负载策略（RoundRobin、Random、WeightedRoundRobin、LeastActive、ConsistentHash）
 - **服务预热**：支持预热权重，新实例逐步承接流量，避免冷启动问题
 - **集群容错**：4 种容错策略（Failover、Failfast、Failsafe、Forking），满足不同业务场景
-- **Mock 引擎**：企业级动态降级能力，支持短路模式与数据篡改模式
+- **Mock 引擎**：动态降级能力，支持短路模式与数据篡改模式
 - **熔断限流**：滑动窗口熔断器、令牌桶限流器，支持动态配置
 - **链路追踪**：分布式调用链追踪，Span 收集与瀑布图可视化
 - **实时监控**：SSE 推送 Mock 规则变更，毫秒级生效
@@ -325,7 +310,7 @@ private void doInvokeWithRetry(ClusterInvocation invocation, boolean async,
 
 ---
 
-### 4. 企业级 Mock 引擎
+### 4. Mock 引擎
 
 #### 两种 Mock 模式
 
@@ -990,8 +975,8 @@ docker-compose logs -f
 | 项目 | 配置 |
 |------|------|
 | 操作系统 | Windows 11 Pro |
-| CPU | 未记录 |
-| 内存 | 未记录 |
+| CPU | AMD Ryzen 9 7845HX with Radeon Graphics |
+| 内存 | 镁光32 GB DDR5 5200MHz(16GB+16GB) |
 | JDK | 21 |
 | 测试工具 | Apache JMeter 5.6.3 |
 | 被测服务 | Engine (Provider) + Radar (Provider) + Command (Consumer) |
@@ -1019,7 +1004,7 @@ Content-Type: application/json
 | 3000 | **6793** | 70ms | 70ms | 91ms | 836ms | 0% | 🟢 高压稳定 |
 | 5000 | **7185** | 66ms | 66ms | 84ms | 768ms | 0% | 🟢 极限压测 |
 
-> **说明**：测试过程中观察到 `Active: 500`，表示 JMeter 实际活跃线程数为 500 左右。这是由于 HTTP 请求响应较快（~70ms），线程完成请求后立即进入下一轮，导致并发线程数不会持续达到配置的最大值。因此上述测试更准确地反映了 **"每秒发起的请求数"** 而非真实的并发连接数。
+> **说明**：测试过程中观察到 `Active: 500`，表示 JMeter 实际活跃线程数为 500 左右。这是由于 HTTP 请求响应较快（~70ms），线程完成请求后立即进入下一轮，导致并发线程数不会持续达到配置的最大值。所以虽然QPS未达到拐点，可是再增加线程的意义已经不大，因此上述测试更准确地反映了 **"每秒发起的请求数"** 而非真实的并发连接数。
 
 ### 性能趋势分析
 
