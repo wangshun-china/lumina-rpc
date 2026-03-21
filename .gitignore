@@ -28,6 +28,7 @@ bin/
 Thumbs.db
 .claude
 CLAUDE.md
+AGENTS.md
 # Interview materials (local only)
 Lumina-RPC-Interview-Questions.md
 Lumina_RPC_Interview_Guide_Strict.md
