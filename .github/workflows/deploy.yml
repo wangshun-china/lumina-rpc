@@ -10,8 +10,11 @@ env:
   IMAGE_NAME: wangshun_build/wangshun_build
 
 jobs:
-  deploy:
+  build-and-push:
+    name: Build & Push Images
     runs-on: ubuntu-latest
+    outputs:
+      VERSION: ${{ steps.version.outputs.VERSION }}
 
     steps:
       # Step 1: 检出代码
@@ -104,41 +107,41 @@ jobs:
           docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dashboard
           docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dashboard-${{ steps.version.outputs.VERSION }}
 
-      # Step 10: 设置 SSH 密钥 (从仓库文件复制)
-      - name: Setup SSH key
+  deploy:
+    name: Deploy via Self-Hosted Runner
+    needs: build-and-push
+    runs-on: self-hosted
+    env:
+      VERSION: ${{ needs.build-and-push.outputs.VERSION }}
+
+    steps:
+      # Step 1: 检出代码（获取最新的 docker-compose.yml）
+
+      # Step 2: 登录阿里云 ACR
+      - name: Login to Aliyun ACR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: aliyun4384550071
+          password: wangshun817
+
+      # Step 3: 本地部署 - 带健康检查和回滚机制
+      - name: Deploy with Docker Compose
         run: |
-          mkdir -p ~/.ssh
-          cp deploy_key.pem ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H 120.26.186.0 >> ~/.ssh/known_hosts 2>/dev/null || true
+          cd ${{ github.workspace }}
 
-      # Step 11: 推送 docker-compose.yml 到服务器
-      - name: Deploy docker-compose.yml via SCP
-        run: |
-          scp docker-compose.yml root@120.26.186.0:/root/lumina-rpc-prod/
-
-      # Step 12: 远程部署 - 带健康检查和回滚机制
-      - name: Deploy with SSH
-        run: |
-          ssh root@120.26.186.0 'bash -s' << 'ENDSSH'
-          cd /root/lumina-rpc-prod
-          VERSION="${{ steps.version.outputs.VERSION }}"
-
-          echo "=== Step 1: 登录 ACR ==="
-          echo "wangshun817" | sudo docker login crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com -u aliyun4384550071 --password-stdin
-
-          echo "=== Step 2: 备份当前运行状态 ==="
+          echo "=== Step 1: 备份当前运行状态 ==="
           BACKUP_FILE="backup_$(date +%Y%m%d_%H%M%S).txt"
-          sudo docker ps --format "{{.Names}} {{.Status}}" > "$BACKUP_FILE"
+          sudo docker ps --format "{{.Names}} {{.Status}}" > "$BACKUP_FILE" || true
           echo "Backup saved to $BACKUP_FILE"
 
-          echo "=== Step 3: 停止 lumina 相关容器 ==="
+          echo "=== Step 2: 停止 lumina 相关容器 ==="
           sudo docker compose down
 
-          echo "=== Step 4: 拉取新版本镜像 ==="
+          echo "=== Step 3: 拉取新版本镜像 ==="
           sudo docker compose pull
 
-          echo "=== Step 5: 顺序启动服务 ==="
+          echo "=== Step 4: 顺序启动服务 ==="
           sudo docker compose up -d mysql
           sleep 20
 
@@ -178,11 +181,10 @@ jobs:
 
           sleep 10
 
-          echo "=== Step 6: 验证服务状态 ==="
+          echo "=== Step 5: 验证服务状态 ==="
           sudo docker ps | grep lumina
 
-          echo "=== Step 7: 清理旧镜像 ==="
+          echo "=== Step 6: 清理旧镜像 ==="
           sudo docker image prune -f
 
           echo "=== 部署成功！版本: $VERSION ==="
-          ENDSSH

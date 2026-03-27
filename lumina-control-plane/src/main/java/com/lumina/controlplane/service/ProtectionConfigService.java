@@ -22,6 +22,7 @@ public class ProtectionConfigService {
     private static final Logger logger = LoggerFactory.getLogger(ProtectionConfigService.class);
 
     private final ProtectionConfigRepository repository;
+    private final SseBroadcastService sseBroadcastService;
 
     /** 配置缓存（用于快速查询） */
     private final Map<String, ProtectionConfigEntity> configCache = new ConcurrentHashMap<>();
@@ -29,8 +30,10 @@ public class ProtectionConfigService {
     /** 配置版本号（用于检测更新） */
     private volatile long globalVersion = System.currentTimeMillis();
 
-    public ProtectionConfigService(ProtectionConfigRepository repository) {
+    public ProtectionConfigService(ProtectionConfigRepository repository,
+                                   SseBroadcastService sseBroadcastService) {
         this.repository = repository;
+        this.sseBroadcastService = sseBroadcastService;
         loadAllConfigs();
     }
 
@@ -88,7 +91,26 @@ public class ProtectionConfigService {
         configCache.put(saved.getServiceName(), saved);
         globalVersion = System.currentTimeMillis();
         logger.info("Saved protection config for service: {}", saved.getServiceName());
+
+        // 广播配置变更事件（SSE实时推送）
+        broadcastConfigChange(saved);
+
         return saved;
+    }
+
+    /**
+     * 广播配置变更事件
+     */
+    private void broadcastConfigChange(ProtectionConfigEntity config) {
+        try {
+            if (sseBroadcastService != null) {
+                sseBroadcastService.broadcastConfigChange("protection", config.getServiceName(), config);
+                logger.debug("Broadcasted protection config change for service: {}", config.getServiceName());
+            }
+        } catch (Exception e) {
+            logger.warn("Failed to broadcast config change: {}", e.getMessage());
+            // 不影响主流程，仅记录日志
+        }
     }
 
     /**

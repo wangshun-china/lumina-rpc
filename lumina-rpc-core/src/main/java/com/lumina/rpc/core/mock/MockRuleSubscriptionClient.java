@@ -4,25 +4,25 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
-import java.net.HttpURLConnection;
 import java.net.URI;
-import java.net.URL;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.net.http.HttpResponse.BodyHandlers;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Mock 规则订阅客户端 - 真正的 SSE 长连接版
+ * Mock 规则订阅客户端 - 统一 SSE 实现（HttpClient 异步流）
  *
- * 关键修复：
- * 1. 使用 HttpURLConnection 保持长连接，不断读取流
- * 2. 自动重连机制，连接断开后 5 秒内重新连接
- * 3. 收到 rule-change 事件后立即同步刷新缓存
+ * 与 ProtectionConfigClient 统一架构：
+ * 1. 使用 HttpClient + BodyHandlers.ofLines() 处理 SSE 流
+ * 2. 异步 CompletableFuture 处理
+ * 3. 统一事件格式：config-change {type: "mock", serviceName, data}
+ * 4. 自动重连 + 定时兜底刷新
  *
  * @author Lumina-RPC Team
  * @since 1.0.0
@@ -30,25 +30,34 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class MockRuleSubscriptionClient {
 
     private static final Logger logger = LoggerFactory.getLogger(MockRuleSubscriptionClient.class);
-
     private static final ObjectMapper objectMapper = new ObjectMapper();
 
     // Control Plane 地址
     private static String controlPlaneUrl = "http://localhost:8080";
 
+    // HttpClient（复用）
+    private static HttpClient httpClient;
+
     // 订阅状态
     private static final AtomicBoolean subscribed = new AtomicBoolean(false);
-    private static final AtomicBoolean connecting = new AtomicBoolean(false);
+    private static volatile boolean sseConnected = false;
 
-    // 重连调度器
-    private static ScheduledExecutorService reconnectScheduler;
+    // 线程池
+    private static ExecutorService sseExecutor;
+    private static ScheduledExecutorService fallbackScheduler;
 
     // 已订阅的服务列表
     private static volatile List<String> subscribedServices;
 
-    // SSE 连接
-    private static Thread sseReaderThread;
-    private static HttpURLConnection sseConnection;
+    // 兜底刷新间隔（5分钟）
+    private static final int FALLBACK_INTERVAL_SECONDS = 300;
+
+    static {
+        // 初始化 HttpClient
+        httpClient = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(5))
+                .build();
+    }
 
     /**
      * 初始化并订阅 Mock 规则
@@ -59,166 +68,190 @@ public class MockRuleSubscriptionClient {
         }
         subscribedServices = serviceNames;
 
-        // 首次拉取所有规则
+        // 首次拉取所有规则（补偿机制）
         fetchAllRules(serviceNames);
 
-        // 启动 SSE 订阅（带自动重连）
-        subscribe(serviceNames);
+        // 启动 SSE 订阅
+        startSseListener();
+
+        // 启动兜底定时刷新
+        startFallbackRefresh();
+
+        logger.info("📡 [Mock-SSE] ✅ Mock SSE listener started, services: {}", serviceNames);
     }
 
     /**
-     * 订阅 Mock 规则变更 - 真正的长连接版本
+     * 启动 SSE 监听（统一 ProtectionConfigClient 架构）
      */
-    public static void subscribe(List<String> serviceNames) {
+    private static void startSseListener() {
         if (subscribed.compareAndSet(false, true)) {
-            // 初始化重连调度器
-            reconnectScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
-                Thread t = new Thread(r, "sse-reconnect");
+            sseExecutor = Executors.newSingleThreadExecutor(r -> {
+                Thread t = new Thread(r, "mock-sse-listener");
                 t.setDaemon(true);
                 return t;
             });
 
-            // 启动 SSE 连接线程
-            startSseLongConnection();
-
-            logger.info("📡 [Mock-SSE] ✅ SSE 长连接已启动，服务: {}", serviceNames);
+            sseExecutor.submit(MockRuleSubscriptionClient::connectSse);
         }
     }
 
     /**
-     * 启动真正的 SSE 长连接 - 不断读取流！
+     * 连接 SSE 并监听（HttpClient 异步流方式）
      */
-    private static void startSseLongConnection() {
-        if (connecting.compareAndSet(false, true)) {
-            // 在新线程中运行 SSE 读取
-            sseReaderThread = new Thread(() -> {
-                while (subscribed.get()) {
-                    try {
-                        connectAndReadStream();
-                    } catch (Exception e) {
-                        logger.error("❌ [Mock-SSE] SSE 连接异常: {}", e.getMessage());
-                    } finally {
-                        // 连接断开，5 秒后重连
-                        if (subscribed.get()) {
-                            logger.info("🔄 [Mock-SSE] 连接断开，5秒后重连...");
-                            try {
-                                Thread.sleep(5000);
-                            } catch (InterruptedException ie) {
-                                Thread.currentThread().interrupt();
-                                break;
+    private static void connectSse() {
+        String sseUrl = controlPlaneUrl + "/api/v1/sse/subscribe/all";
+
+        while (subscribed.get() && !Thread.currentThread().isInterrupted()) {
+            try {
+                logger.info("📡 [Mock-SSE] Connecting to SSE: {}", sseUrl);
+
+                HttpRequest request = HttpRequest.newBuilder()
+                        .uri(URI.create(sseUrl))
+                        .header("Accept", "text/event-stream")
+                        .header("Cache-Control", "no-cache")
+                        .GET()
+                        .build();
+
+                sseConnected = false;
+
+                // 异步发送请求，处理 SSE 流
+                httpClient.sendAsync(request, BodyHandlers.ofLines())
+                        .thenAccept(response -> {
+                            if (response.statusCode() == 200) {
+                                logger.info("✅ [Mock-SSE] SSE connection established");
+                                sseConnected = true;
+                                handleSseStream(response.body());
+                            } else {
+                                logger.warn("❌ [Mock-SSE] Connection failed with status: {}", response.statusCode());
                             }
-                        }
+                        })
+                        .exceptionally(e -> {
+                            logger.error("❌ [Mock-SSE] Connection error: {}", e.getMessage());
+                            return null;
+                        })
+                        .join();
+
+            } catch (Exception e) {
+                logger.error("❌ [Mock-SSE] SSE listener error: {}", e.getMessage());
+            }
+
+            sseConnected = false;
+            logger.warn("🔄 [Mock-SSE] Connection lost, reconnecting in 10 seconds...");
+
+            // 断线重连
+            try {
+                Thread.sleep(10000);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+    }
+
+    /**
+     * 处理 SSE 流（统一格式解析）
+     */
+    private static void handleSseStream(java.util.stream.Stream<String> lines) {
+        StringBuilder eventBuilder = new StringBuilder();
+
+        lines.forEach(line -> {
+            try {
+                if (line.startsWith("event:")) {
+                    // 新事件开始
+                    eventBuilder.setLength(0);
+                    eventBuilder.append(line.substring(6).trim());
+                } else if (line.startsWith("data:")) {
+                    // 事件数据
+                    String data = line.substring(5).trim();
+                    if (!data.isEmpty()) {
+                        handleSseEvent(eventBuilder.toString(), data);
+                    }
+                } else if (line.isEmpty()) {
+                    // 空行表示事件结束
+                    eventBuilder.setLength(0);
+                }
+            } catch (Exception e) {
+                logger.error("❌ [Mock-SSE] Error handling SSE line: {}", e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * 处理 SSE 事件（统一 config-change 格式）
+     *
+     * 统一事件格式：
+     * {
+     *   "type": "mock",
+     *   "serviceName": "sample-engine",
+     *   "data": { "ruleId": 123, "action": "UPDATE" }
+     * }
+     */
+    @SuppressWarnings("unchecked")
+    private static void handleSseEvent(String eventName, String eventData) {
+        try {
+            if ("config-change".equals(eventName)) {
+                // 统一格式处理
+                Map<String, Object> event = objectMapper.readValue(eventData, Map.class);
+                String type = (String) event.get("type");
+                String serviceName = (String) event.get("serviceName");
+
+                // 只处理 mock 类型
+                if ("mock".equals(type)) {
+                    logger.info("📝 [Mock-SSE] Received config change: service={}, event={}",
+                            serviceName, eventData);
+
+                    // 拉取最新规则
+                    if (subscribedServices != null && subscribedServices.contains(serviceName)) {
+                        fetchRulesForService(serviceName);
                     }
                 }
-            }, "sse-stream-reader");
-            sseReaderThread.setDaemon(true);
-            sseReaderThread.start();
+            } else if ("rule-change".equals(eventName)) {
+                // 兼容旧格式（过渡期间）
+                Map<String, Object> event = objectMapper.readValue(eventData, Map.class);
+                String serviceName = (String) event.get("serviceName");
 
-            connecting.set(false);
+                logger.info("📝 [Mock-SSE] Received rule-change (legacy): service={}", serviceName);
+
+                if (subscribedServices != null && subscribedServices.contains(serviceName)) {
+                    fetchRulesForService(serviceName);
+                }
+            } else if ("connected".equals(eventName)) {
+                logger.info("✅ [Mock-SSE] SSE connection confirmed");
+            } else if ("heartbeat".equals(eventName)) {
+                logger.debug("💓 [Mock-SSE] Heartbeat received");
+            }
+        } catch (Exception e) {
+            logger.error("❌ [Mock-SSE] Failed to handle SSE event: {}", e.getMessage());
         }
     }
 
     /**
-     * 连接并持续读取 SSE 流
+     * 启动兜底定时刷新
      */
-    private static void connectAndReadStream() throws Exception {
-        String sseUrl = controlPlaneUrl + "/api/v1/sse/subscribe/all";
-        logger.info("📡 [Mock-SSE] 正在连接 SSE: {}", sseUrl);
-
-        URL url = new URL(sseUrl);
-        sseConnection = (HttpURLConnection) url.openConnection();
-        sseConnection.setRequestMethod("GET");
-        sseConnection.setRequestProperty("Accept", "text/event-stream");
-        sseConnection.setRequestProperty("Cache-Control", "no-cache");
-        sseConnection.setConnectTimeout(10000);
-        sseConnection.setReadTimeout(60 * 1000); // 60秒超时，保持长连接
-        sseConnection.setDoInput(true);
-
-        int responseCode = sseConnection.getResponseCode();
-        if (responseCode != 200) {
-            logger.warn("❌ [Mock-SSE] 连接失败，HTTP {}", responseCode);
-            sseConnection.disconnect();
+    private static void startFallbackRefresh() {
+        if (fallbackScheduler != null && !fallbackScheduler.isShutdown()) {
             return;
         }
 
-        logger.info("✅ [Mock-SSE] ✅ SSE 连接建立成功！开始监听推送...");
+        fallbackScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "mock-fallback-refresh");
+            t.setDaemon(true);
+            return t;
+        });
 
-        // 读取流 - 真正的 SSE 长连接！
-        try (BufferedReader reader = new BufferedReader(
-                new InputStreamReader(sseConnection.getInputStream(), "UTF-8"))) {
-
-            String line;
-            String eventType = null;
-            StringBuilder eventData = new StringBuilder();
-
-            while ((line = reader.readLine()) != null) {
-                // 处理 SSE 事件格式
-                if (line.startsWith("event:")) {
-                    eventType = line.substring(6).trim();
-                } else if (line.startsWith("data:")) {
-                    if (eventData.length() > 0) {
-                        eventData.append("\n");
-                    }
-                    eventData.append(line.substring(5).trim());
-                } else if (line.isEmpty() && eventType != null && eventData.length() > 0) {
-                    // 空行分隔事件，处理累积的事件数据
-                    String data = eventData.toString();
-                    handleSseEvent(eventType, data);
-
-                    // 重置
-                    eventType = null;
-                    eventData.setLength(0);
-                }
-            }
-        }
-
-        logger.warn("⚠️ [Mock-SSE] SSE 流读取结束（连接断开）");
-    }
-
-    /**
-     * 处理 SSE 事件
-     */
-    @SuppressWarnings("unchecked")
-    private static void handleSseEvent(String eventType, String eventData) {
-        logger.info("📥 [Mock-SSE] 收到事件: event={}, data={}", eventType, eventData);
-
-        switch (eventType) {
-            case "connected":
-                logger.info("✅ [Mock-SSE] ✅ SSE 连接确认");
-                break;
-
-            case "heartbeat":
-                // 心跳，保持连接
-                break;
-
-            case "rule-change":
-                try {
-                    // 解析规则变更事件
-                    Map<String, Object> changeEvent = objectMapper.readValue(eventData, Map.class);
-                    String serviceName = (String) changeEvent.get("serviceName");
-                    Long ruleId = ((Number) changeEvent.get("ruleId")).longValue();
-                    String action = (String) changeEvent.get("action");
-
-                    logger.info("📝 [Mock-SSE] 📝 收到配置变更推送: service={}, ruleId={}, action={}",
-                            serviceName, ruleId, action);
-
-                    // 关键：立即、同步拉取最新规则！
+        fallbackScheduler.scheduleAtFixedRate(
+                () -> {
                     if (subscribedServices != null) {
+                        logger.debug("🔄 [Mock-SSE] Fallback refresh triggered");
                         fetchAllRules(subscribedServices);
-                    } else {
-                        fetchRulesForService(serviceName);
                     }
+                },
+                FALLBACK_INTERVAL_SECONDS,
+                FALLBACK_INTERVAL_SECONDS,
+                TimeUnit.SECONDS
+        );
 
-                    logger.info("✅ [Mock-SSE] ✅ 收到 SSE 配置变更推送，规则缓存已在 1 毫秒内刷新完毕！");
-
-                } catch (Exception e) {
-                    logger.error("❌ [Mock-SSE] 解析 rule-change 失败: {}", e.getMessage(), e);
-                }
-                break;
-
-            default:
-                logger.debug("📡 [Mock-SSE] 未知事件类型: {}", eventType);
-        }
+        logger.info("📡 [Mock-SSE] Fallback refresh started (interval: {}s)", FALLBACK_INTERVAL_SECONDS);
     }
 
     /**
@@ -242,32 +275,23 @@ public class MockRuleSubscriptionClient {
         String url = controlPlaneUrl + "/api/v1/rules/service/" + serviceName;
 
         try {
-            URL urlObj = new URL(url);
-            HttpURLConnection conn = (HttpURLConnection) urlObj.openConnection();
-            conn.setRequestMethod("GET");
-            conn.setConnectTimeout(5000);
-            conn.setReadTimeout(5000);
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .timeout(Duration.ofSeconds(5))
+                    .GET()
+                    .build();
 
-            int responseCode = conn.getResponseCode();
-            if (responseCode == 200) {
-                try (BufferedReader reader = new BufferedReader(
-                        new InputStreamReader(conn.getInputStream(), "UTF-8"))) {
-                    StringBuilder response = new StringBuilder();
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        response.append(line);
-                    }
+            HttpResponse<String> response = httpClient.send(request, BodyHandlers.ofString());
 
-                    List<Map<String, Object>> rules = objectMapper.readValue(response.toString(), List.class);
-                    MockRuleManager.getInstance().updateRulesFromControlPlane(serviceName, rules);
-                    logger.info("📋 [Mock-SSE] 拉取成功: service={}, 规则数={}", serviceName, rules.size());
-                }
+            if (response.statusCode() == 200) {
+                List<Map<String, Object>> rules = objectMapper.readValue(response.body(), List.class);
+                MockRuleManager.getInstance().updateRulesFromControlPlane(serviceName, rules);
+                logger.info("📋 [Mock-SSE] Rules fetched: service={}, count={}", serviceName, rules.size());
             } else {
-                logger.warn("⚠️ [Mock-SSE] 拉取失败: service={}, HTTP {}", serviceName, responseCode);
+                logger.warn("⚠️ [Mock-SSE] Fetch failed: service={}, HTTP {}", serviceName, response.statusCode());
             }
-            conn.disconnect();
         } catch (Exception e) {
-            logger.error("❌ [Mock-SSE] 拉取规则异常: service={}, error={}", serviceName, e.getMessage());
+            logger.error("❌ [Mock-SSE] Fetch error: service={}, error={}", serviceName, e.getMessage());
         }
     }
 
@@ -276,20 +300,17 @@ public class MockRuleSubscriptionClient {
      */
     public static void shutdown() {
         subscribed.set(false);
+        sseConnected = false;
 
-        // 关闭 SSE 连接
-        if (sseConnection != null) {
-            try {
-                sseConnection.disconnect();
-            } catch (Exception ignored) {}
+        if (sseExecutor != null) {
+            sseExecutor.shutdown();
         }
 
-        // 关闭调度器
-        if (reconnectScheduler != null) {
-            reconnectScheduler.shutdown();
+        if (fallbackScheduler != null) {
+            fallbackScheduler.shutdown();
         }
 
-        logger.info("📡 [Mock-SSE] 订阅已停止");
+        logger.info("📡 [Mock-SSE] Subscription stopped");
     }
 
     /**
@@ -311,5 +332,24 @@ public class MockRuleSubscriptionClient {
      */
     public static boolean isSubscribed() {
         return subscribed.get();
+    }
+
+    /**
+     * 检查 SSE 连接状态
+     */
+    public static boolean isSseConnected() {
+        return sseConnected;
+    }
+
+    /**
+     * 获取统计信息
+     */
+    public static Map<String, Object> getStats() {
+        Map<String, Object> stats = new ConcurrentHashMap<>();
+        stats.put("subscribed", subscribed.get());
+        stats.put("sseConnected", sseConnected);
+        stats.put("controlPlaneUrl", controlPlaneUrl);
+        stats.put("subscribedServices", subscribedServices);
+        return stats;
     }
 }

@@ -7,23 +7,31 @@ import org.slf4j.LoggerFactory;
 import java.net.InetSocketAddress;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * 加权轮询负载均衡器
+ * 平滑加权轮询负载均衡器（Nginx 算法）
  *
- * 根据实例权重进行轮询选择，权重越高的实例获得的请求越多
- * 支持预热权重：预热中的实例有效权重会降低
+ * 特点：
+ * 1. 权重大的实例被选中的次数多（符合预期）
+ * 2. 不会连续选中同一个实例（平滑分散）
+ * 3. 支持预热权重：预热中的实例 effectiveWeight 低，自然少被选中
+ *
+ * 算法原理：
+ * 1. 每次所有实例 currentWeight += effectiveWeight
+ * 2. 选中 currentWeight 最大的实例
+ * 3. 被选中的实例 currentWeight -= totalWeight
+ * 4. 权重大的实例积分涨得快，更容易被选中
  */
 public class WeightedRoundRobinLoadBalancer implements LoadBalancer {
 
     private static final Logger logger = LoggerFactory.getLogger(WeightedRoundRobinLoadBalancer.class);
 
-    // 每个服务的轮询状态，key: serviceName, value: 当前索引
-    private final ConcurrentHashMap<String, AtomicInteger> currentIndexMap = new ConcurrentHashMap<>();
-
-    // 每个服务的当前权重计数器，key: serviceName, value: 当前剩余权重
-    private final ConcurrentHashMap<String, AtomicInteger> currentWeightMap = new ConcurrentHashMap<>();
+    /**
+     * 每个服务的当前权重状态
+     * key: serviceName#instanceAddress
+     * value: 当前积分
+     */
+    private final ConcurrentHashMap<String, Integer> currentWeights = new ConcurrentHashMap<>();
 
     @Override
     public InetSocketAddress select(List<InetSocketAddress> serviceAddresses, String serviceName) {
@@ -37,14 +45,7 @@ public class WeightedRoundRobinLoadBalancer implements LoadBalancer {
         }
 
         // 简单轮询（无权重信息时）
-        AtomicInteger counter = currentIndexMap.computeIfAbsent(serviceName, k -> new AtomicInteger(0));
-        int index = counter.getAndIncrement() % serviceAddresses.size();
-        if (index < 0) {
-            counter.set(0);
-            index = 0;
-        }
-
-        return serviceAddresses.get(index);
+        return simpleRoundRobin(serviceAddresses, serviceName);
     }
 
     @Override
@@ -59,65 +60,86 @@ public class WeightedRoundRobinLoadBalancer implements LoadBalancer {
             return new InetSocketAddress(instance.getHost(), instance.getPort());
         }
 
-        // 计算每个实例的有效权重
-        int[] weights = new int[instances.size()];
-        int totalWeight = 0;
+        // 平滑加权轮询核心算法
+        ServiceInstance selected = doSmoothWeightedSelect(instances, serviceName);
 
-        for (int i = 0; i < instances.size(); i++) {
-            int effectiveWeight = instances.get(i).getEffectiveWeight();
-            weights[i] = Math.max(1, effectiveWeight); // 最小权重为 1
-            totalWeight += weights[i];
+        if (selected == null) {
+            // 兜底：简单随机
+            selected = instances.get((int) (Math.random() * instances.size()));
         }
-
-        // 使用平滑加权轮询算法
-        // 每次选择权重最大的实例，然后减去总权重
-        // 这样可以让权重高的实例被更均匀地选中
-
-        // 获取当前状态
-        AtomicInteger currentWeight = currentWeightMap.computeIfAbsent(serviceName, k -> new AtomicInteger(0));
-        AtomicInteger currentIndex = currentIndexMap.computeIfAbsent(serviceName, k -> new AtomicInteger(0));
-
-        // 简化的加权轮询：基于权重比例的选择
-        int selected = selectByWeight(weights, totalWeight, currentIndex, currentWeight);
-
-        ServiceInstance instance = instances.get(selected);
 
         if (logger.isDebugEnabled()) {
-            logger.debug("[WeightedRoundRobinLoadBalancer] Selected {}:{} for service {} (weight={}/{})",
-                    instance.getHost(), instance.getPort(), serviceName,
-                    weights[selected], totalWeight);
+            logger.debug("[WeightedRoundRobinLoadBalancer] Selected {}:{} for service {} (weight={})",
+                    selected.getHost(), selected.getPort(), serviceName,
+                    selected.getEffectiveWeight());
         }
 
-        return new InetSocketAddress(instance.getHost(), instance.getPort());
+        return new InetSocketAddress(selected.getHost(), selected.getPort());
     }
 
     /**
-     * 基于权重的轮询选择
+     * 平滑加权轮询核心实现（Nginx 算法）
+     *
+     * 算法步骤：
+     * 1. 每个实例 currentWeight += effectiveWeight
+     * 2. 选中 currentWeight 最大的实例
+     * 3. 被选中的实例 currentWeight -= totalWeight
+     * 4. 返回选中的实例
      */
-    private int selectByWeight(int[] weights, int totalWeight, AtomicInteger currentIndex, AtomicInteger currentWeight) {
-        // 简单加权轮询：维护一个计数器，每次减去当前实例的权重
-        // 当计数器小于等于 0 时，选择当前实例并重置计数器
+    private ServiceInstance doSmoothWeightedSelect(List<ServiceInstance> instances, String serviceName) {
+        int totalWeight = 0;
+        ServiceInstance selected = null;
+        int maxCurrentWeight = Integer.MIN_VALUE;
 
-        int index = currentIndex.get();
-        int weight = currentWeight.get();
+        // 第一轮：给每个实例加积分，找最大的
+        for (ServiceInstance instance : instances) {
+            // 使用 effectiveWeight（包含预热权重！）
+            int effectiveWeight = instance.getEffectiveWeight();
+            totalWeight += effectiveWeight;
 
-        weight -= weights[index];
+            // 构建 key：服务名 + 实例地址
+            String key = buildKey(serviceName, instance);
 
-        if (weight <= 0) {
-            // 选择当前实例，移动到下一个
-            int selectedIndex = index;
-            index = (index + 1) % weights.length;
-            weight = totalWeight;
+            // 当前积分 += 有效权重
+            int currentWeight = currentWeights.getOrDefault(key, 0) + effectiveWeight;
+            currentWeights.put(key, currentWeight);
 
-            currentIndex.set(index);
-            currentWeight.set(weight);
-
-            return selectedIndex;
-        } else {
-            // 继续当前实例
-            currentWeight.set(weight);
-            return index;
+            // 找积分最高的
+            if (currentWeight > maxCurrentWeight) {
+                maxCurrentWeight = currentWeight;
+                selected = instance;
+            }
         }
+
+        // 第二轮：被选中的实例积分 -= 总权重
+        if (selected != null && totalWeight > 0) {
+            String selectedKey = buildKey(serviceName, selected);
+            int newWeight = currentWeights.get(selectedKey) - totalWeight;
+            currentWeights.put(selectedKey, newWeight);
+
+            if (logger.isDebugEnabled()) {
+                logger.debug("[WeightedRoundRobinLoadBalancer] {} currentWeight after select: {}",
+                        selectedKey, newWeight);
+            }
+        }
+
+        return selected;
+    }
+
+    /**
+     * 构建缓存 key
+     */
+    private String buildKey(String serviceName, ServiceInstance instance) {
+        return serviceName + "#" + instance.getHost() + ":" + instance.getPort();
+    }
+
+    /**
+     * 简单轮询（无权重时兜底）
+     */
+    private InetSocketAddress simpleRoundRobin(List<InetSocketAddress> addresses, String serviceName) {
+        // 使用当前时间作为简单轮询索引
+        int index = (int) (System.currentTimeMillis() % addresses.size());
+        return addresses.get(index);
     }
 
     @Override

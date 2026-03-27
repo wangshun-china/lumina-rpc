@@ -112,53 +112,19 @@ public class SseBroadcastService {
     }
 
     /**
-     * 广播 Mock Rule 变更事件 - 强制广播给所有订阅者！
-     * 不管改了什么服务，直接向所有存活中的 Emitter 广播！
+     * 广播 Mock Rule 变更事件 - 统一使用 config-change 格式
      *
      * @param serviceName 服务名称
      * @param ruleId      变更的规则 ID
      * @param action      操作类型: CREATE, UPDATE, DELETE
      */
     public void broadcastRuleChange(String serviceName, Long ruleId, String action) {
-        String eventData;
-        try {
-            eventData = objectMapper.writeValueAsString(new RuleChangeEvent(ruleId, action, serviceName));
-        } catch (Exception e) {
-            logger.error("❌ Failed to serialize rule change event", e);
-            return;
-        }
+        // 使用统一的 config-change 格式广播
+        Map<String, Object> data = new java.util.HashMap<>();
+        data.put("ruleId", ruleId);
+        data.put("action", action);
 
-        // 强制广播给所有 emitter！不遗漏任何一个！
-        int successCount = 0;
-        int failCount = 0;
-
-        for (Map.Entry<String, Set<SseEmitter>> entry : emittersByService.entrySet()) {
-            String emitterKey = entry.getKey();
-            Set<SseEmitter> emitters = entry.getValue();
-
-            if (emitters == null || emitters.isEmpty()) {
-                continue;
-            }
-
-            logger.info("📡 [SSE-BROADCAST] 强制广播给 {} ({} 个连接), service={}, action={}",
-                    emitterKey, emitters.size(), serviceName, action);
-
-            for (SseEmitter emitter : emitters) {
-                try {
-                    emitter.send(SseEmitter.event()
-                            .name("rule-change")
-                            .id(String.valueOf(ruleId))
-                            .data(eventData));
-                    successCount++;
-                } catch (IOException e) {
-                    logger.error("❌ 广播失败，移除 emitter", e);
-                    removeEmitter(emitter);
-                    failCount++;
-                }
-            }
-        }
-
-        logger.info("📡 [SSE-BROADCAST] 广播完成: 成功={}, 失败={}", successCount, failCount);
+        broadcastConfigChange("mock", serviceName, data);
     }
 
     /**
@@ -320,6 +286,90 @@ public class SseBroadcastService {
         public void setTimestamp(Long timestamp) {
             this.timestamp = timestamp;
         }
+    }
+
+    // ==================== 统一配置变更广播 ====================
+
+    /**
+     * 广播统一配置变更事件
+     * 用于 ProtectionConfig、MockRule 等所有配置变更
+     *
+     * @param configType 配置类型: protection | mock | shutdown
+     * @param serviceName 服务名称
+     * @param configData 配置数据对象
+     */
+    public void broadcastConfigChange(String configType, String serviceName, Object configData) {
+        String eventData;
+        try {
+            ConfigChangeEvent event = new ConfigChangeEvent(configType, serviceName, configData);
+            eventData = objectMapper.writeValueAsString(event);
+        } catch (Exception e) {
+            logger.error("❌ Failed to serialize config change event", e);
+            return;
+        }
+
+        int successCount = 0;
+        int failCount = 0;
+
+        // 广播给所有订阅者
+        for (Map.Entry<String, Set<SseEmitter>> entry : emittersByService.entrySet()) {
+            String emitterKey = entry.getKey();
+            Set<SseEmitter> emitters = entry.getValue();
+
+            if (emitters == null || emitters.isEmpty()) {
+                continue;
+            }
+
+            // 只广播给订阅"all"或特定服务的消费者
+            if (!"__ALL__".equals(emitterKey) && !serviceName.equals(emitterKey)) {
+                continue;
+            }
+
+            logger.info("📡 [SSE-CONFIG] Broadcasting {} config change to {} ({} connections), service={}",
+                    configType, emitterKey, emitters.size(), serviceName);
+
+            for (SseEmitter emitter : emitters) {
+                try {
+                    emitter.send(SseEmitter.event()
+                            .name("config-change")
+                            .data(eventData));
+                    successCount++;
+                } catch (IOException e) {
+                    logger.error("❌ [SSE-CONFIG] Failed to broadcast config change", e);
+                    removeEmitter(emitter);
+                    failCount++;
+                }
+            }
+        }
+
+        logger.info("📡 [SSE-CONFIG] Config broadcast complete: success={}, fail={}", successCount, failCount);
+    }
+
+    /**
+     * 统一配置变更事件
+     */
+    public static class ConfigChangeEvent {
+        private String type;        // protection | mock | shutdown
+        private String serviceName;
+        private Object data;        // 配置数据
+        private Long timestamp;
+
+        public ConfigChangeEvent(String type, String serviceName, Object data) {
+            this.type = type;
+            this.serviceName = serviceName;
+            this.data = data;
+            this.timestamp = System.currentTimeMillis();
+        }
+
+        // Getters and Setters
+        public String getType() { return type; }
+        public void setType(String type) { this.type = type; }
+        public String getServiceName() { return serviceName; }
+        public void setServiceName(String serviceName) { this.serviceName = serviceName; }
+        public Object getData() { return data; }
+        public void setData(Object data) { this.data = data; }
+        public Long getTimestamp() { return timestamp; }
+        public void setTimestamp(Long timestamp) { this.timestamp = timestamp; }
     }
 
     // ==================== 优雅停机信号推送 ====================

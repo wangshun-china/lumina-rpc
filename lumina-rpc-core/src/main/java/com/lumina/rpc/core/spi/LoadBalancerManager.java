@@ -17,7 +17,7 @@ public class LoadBalancerManager {
     private static final ConcurrentHashMap<String, LoadBalancer> LOAD_BALANCERS = new ConcurrentHashMap<>();
 
     // 默认负载均衡器名称
-    private static volatile String defaultLoadBalancerName = "round-robin";
+    private static volatile String defaultLoadBalancerName = "weighted-round-robin";
 
     static {
         // 加载 SPI 实现的负载均衡器
@@ -63,8 +63,8 @@ public class LoadBalancerManager {
     public static LoadBalancer getLoadBalancer(String name) {
         LoadBalancer loadBalancer = LOAD_BALANCERS.get(name);
         if (loadBalancer == null) {
-            logger.warn("Load balancer not found: {}, using default round-robin", name);
-            return LOAD_BALANCERS.get("round-robin");
+            logger.warn("Load balancer not found: {}, using default weighted-round-robin", name);
+            return LOAD_BALANCERS.get("weighted-round-robin");
         }
         return loadBalancer;
     }

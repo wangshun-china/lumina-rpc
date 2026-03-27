@@ -65,10 +65,10 @@ public class CircuitBreaker {
     /** 当前窗口索引 */
     private final AtomicInteger currentWindowIndex = new AtomicInteger(0);
 
-    /** 窗口总请求数 */
+    /** 窗口总请求数（仅统计当前窗口内的请求） */
     private final AtomicInteger totalRequests = new AtomicInteger(0);
 
-    /** 窗口错误数 */
+    /** 窗口错误数（仅统计当前窗口内的错误） */
     private final AtomicInteger totalErrors = new AtomicInteger(0);
 
     // ========== 时间控制 ==========
@@ -196,11 +196,36 @@ public class CircuitBreaker {
     }
 
     /**
-     * 记录到滑动窗口
+     * 记录到滑动窗口（真正的滑动窗口实现）
+     *
+     * 算法：
+     * 1. 获取当前索引位置
+     * 2. 读取该位置的旧数据（上 windowSize 个请求前的数据）
+     * 3. 从总计数中减去旧数据
+     * 4. 清零该位置并写入新数据
+     * 5. 加到总计数中
+     *
+     * 这样窗口内始终保持最近 windowSize 个请求的数据
      */
     private void recordToWindow(boolean success) {
         int index = currentWindowIndex.getAndUpdate(i -> (i + 1) % windowSize);
 
+        // 读取该位置的旧数据（即将被覆盖的数据）
+        int oldSuccess = successWindow[index].get();
+        int oldFailure = failureWindow[index].get();
+
+        // 从总计数中减去旧数据（这些数据已经滑出窗口）
+        if (oldSuccess > 0) {
+            totalRequests.addAndGet(-oldSuccess);
+            successWindow[index].set(0);
+        }
+        if (oldFailure > 0) {
+            totalRequests.addAndGet(-oldFailure);
+            totalErrors.addAndGet(-oldFailure);
+            failureWindow[index].set(0);
+        }
+
+        // 写入新数据
         if (success) {
             successWindow[index].incrementAndGet();
             totalRequests.incrementAndGet();

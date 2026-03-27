@@ -51,11 +51,13 @@ public class RateLimiter {
     public RateLimiter(String serviceName, int permitsPerSecond) {
         this.serviceName = serviceName;
         this.permitsPerSecond = permitsPerSecond;
-        this.maxTokens = Math.max(permitsPerSecond, 1);
-        this.tokens = new java.util.concurrent.atomic.AtomicReference<>((double) permitsPerSecond);
+        // 桶容量 = QPS * 5，允许5秒的突发流量（至少为 permitsPerSecond）
+        this.maxTokens = Math.max(permitsPerSecond * 5, permitsPerSecond);
+        this.tokens = new java.util.concurrent.atomic.AtomicReference<>((double) maxTokens);
         this.lastRefillTime = new AtomicLong(System.nanoTime());
 
-        logger.info("RateLimiter created for service: {} (permits={}/s)", serviceName, permitsPerSecond);
+        logger.info("RateLimiter created for service: {} (permits={}/s, maxTokens={})",
+                serviceName, permitsPerSecond, maxTokens);
     }
 
     /**
