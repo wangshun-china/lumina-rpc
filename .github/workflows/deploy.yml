@@ -328,8 +328,14 @@ jobs:
           docker ps --format "{{.Names}} {{.Status}}" > "$BACKUP_FILE" 2>/dev/null || echo "No running containers"
           echo "Backup saved to $BACKUP_FILE"
 
-          echo "=== Step 2: 停止 lumina 相关容器（如果存在）==="
-          docker compose down 2>/dev/null || echo "No containers to stop (first run or already stopped)"
+          echo "=== Step 2: 停止并清理 lumina 相关容器 ==="
+          # 强制停止并删除所有 lumina 容器（解决容器名冲突）
+          docker stop lumina-mysql lumina-control-plane lumina-dashboard lumina-sample-engine lumina-sample-radar lumina-sample-command 2>/dev/null || true
+          docker rm lumina-mysql lumina-control-plane lumina-dashboard lumina-sample-engine lumina-sample-radar lumina-sample-command 2>/dev/null || true
+          docker compose down --remove-orphans 2>/dev/null || echo "No containers to stop (first run)"
+
+          echo "=== Step 3: 清理可能残留的容器 ==="
+          docker ps -a | grep 'lumina-' | awk '{print $1}' | xargs -r docker rm -f 2>/dev/null || echo "No residual containers"
 
           echo "=== Step 3: 拉取新版本镜像 ==="
           docker compose pull
