@@ -32,6 +32,7 @@ import java.util.concurrent.TimeUnit;
 import com.lumina.rpc.core.cluster.Cluster;
 import com.lumina.rpc.core.cluster.ClusterInvocation;
 import com.lumina.rpc.core.cluster.ClusterManager;
+import com.lumina.rpc.core.client.ControlPlaneClient;
 import com.lumina.rpc.core.protection.ProtectionConfig;
 
 /**
@@ -292,7 +293,7 @@ public class RpcClientHandler implements InvocationHandler {
      */
     private ProtectionConfig getProtectionConfig(String serviceName) {
         try {
-            return com.lumina.rpc.core.protection.ProtectionConfigClient.getInstance().getConfig(serviceName);
+            return ControlPlaneClient.getInstance().getProtectionConfig(serviceName);
         } catch (Exception e) {
             logger.debug("Failed to get protection config for {}, using defaults", serviceName);
             return null;

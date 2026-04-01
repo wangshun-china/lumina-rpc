@@ -19,8 +19,9 @@ import java.util.concurrent.atomic.AtomicInteger;
  * 设计理念（对标 Dubbo）：
  * - 收到 SIGTERM/SIGINT 信号后，先从注册中心注销
  * - 标记为"停机中"，拒绝新请求
- * - 等待 in-flight 请求完成（可配置超时时间）
+ * - 等待 in-flight 请求完成（固定超时 10 秒）
  * - 超时后强制关闭，打印未完成的请求日志
+ * - 完全本地化设计，无需外部配置同步
  *
  * @author Lumina-RPC Team
  * @since 1.3.0
@@ -38,8 +39,8 @@ public class GracefulShutdownManager {
     /** 正在处理的请求数量 */
     private final AtomicInteger activeRequests = new AtomicInteger(0);
 
-    /** 等待请求完成的最大时间（毫秒） */
-    private volatile long shutdownTimeoutMs = 10000;
+    /** 等待请求完成的最大时间（毫秒）- 本地固定配置 */
+    private static final long DEFAULT_SHUTDOWN_TIMEOUT_MS = 10000;
 
     /** 停机开始时间 */
     private volatile long shutdownStartTime;
@@ -74,13 +75,6 @@ public class GracefulShutdownManager {
             logger.info("🛑 [ShutdownHook] JVM shutdown signal received");
             gracefulShutdown();
         }, "lumina-shutdown-hook"));
-    }
-
-    /**
-     * 设置停机超时时间
-     */
-    public void setShutdownTimeout(long timeoutMs) {
-        this.shutdownTimeoutMs = timeoutMs;
     }
 
     /**
@@ -162,9 +156,9 @@ public class GracefulShutdownManager {
         int activeCount = activeRequests.get();
         if (activeCount > 0) {
             logger.info("⏳ [Graceful Shutdown] Waiting for {} active requests to complete (timeout: {}ms)...",
-                    activeCount, shutdownTimeoutMs);
+                    activeCount, DEFAULT_SHUTDOWN_TIMEOUT_MS);
 
-            long remainingTime = shutdownTimeoutMs;
+            long remainingTime = DEFAULT_SHUTDOWN_TIMEOUT_MS;
             while (activeRequests.get() > 0 && remainingTime > 0) {
                 synchronized (this) {
                     try {
@@ -176,7 +170,7 @@ public class GracefulShutdownManager {
                         break;
                     }
                 }
-                remainingTime = shutdownTimeoutMs - (System.currentTimeMillis() - shutdownStartTime);
+                remainingTime = DEFAULT_SHUTDOWN_TIMEOUT_MS - (System.currentTimeMillis() - shutdownStartTime);
             }
 
             // 检查是否还有未完成的请求

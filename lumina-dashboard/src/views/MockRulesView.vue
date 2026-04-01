@@ -163,6 +163,10 @@
               </div>
             </el-radio>
           </el-radio-group>
+          <div class="mt-2 p-2 bg-slate-800 rounded text-xs text-slate-400">
+            💡 <strong>短路模式：</strong>适合 Provider 未开发、隔离测试场景，完全不走网络。<br/>
+            💡 <strong>篡改模式：</strong>适合测试部分字段异常、数据污染场景，Mock 数据会覆盖真实数据的对应字段。
+          </div>
         </div>
 
         <!-- 动态条件构造器 -->

@@ -13,6 +13,9 @@ import java.util.Random;
  *
  * 根据实例权重进行随机选择，权重越高的实例被选中的概率越大
  * 支持预热权重：预热中的实例有效权重会降低
+ *
+ * @author Lumina-RPC Team
+ * @since 1.3.0
  */
 public class RandomLoadBalancer implements LoadBalancer {
 
@@ -21,76 +24,69 @@ public class RandomLoadBalancer implements LoadBalancer {
     private final Random random = new Random();
 
     @Override
-    public InetSocketAddress select(List<InetSocketAddress> serviceAddresses, String serviceName) {
-        if (serviceAddresses == null || serviceAddresses.isEmpty()) {
-            logger.warn("No available service addresses for service: {}", serviceName);
-            return null;
-        }
-
-        if (serviceAddresses.size() == 1) {
-            return serviceAddresses.get(0);
-        }
-
-        // 简单随机选择
-        int index = random.nextInt(serviceAddresses.size());
-        return serviceAddresses.get(index);
+    public String getName() {
+        return "random";
     }
 
     @Override
-    public InetSocketAddress selectInstance(List<ServiceInstance> instances, String serviceName) {
-        if (instances == null || instances.isEmpty()) {
-            logger.warn("No available service instances for service: {}", serviceName);
+    public SelectionResult selectWithExclusion(
+            List<ServiceInstance> instances,
+            List<InetSocketAddress> excluded,
+            String serviceName,
+            Object context) {
+
+        // Step 1: 过滤已失败的节点
+        List<ServiceInstance> available = filterExcluded(instances, excluded);
+
+        if (available.isEmpty()) {
+            logger.warn("[Random] No available instances for service: {}", serviceName);
             return null;
         }
 
-        if (instances.size() == 1) {
-            ServiceInstance instance = instances.get(0);
-            return new InetSocketAddress(instance.getHost(), instance.getPort());
+        if (available.size() == 1) {
+            ServiceInstance instance = available.get(0);
+            InetSocketAddress address = new InetSocketAddress(instance.getHost(), instance.getPort());
+            return SelectionResult.simple(address);
         }
 
-        // 计算每个实例的有效权重（静态权重 × 预热权重）
-        int[] weights = new int[instances.size()];
+        // Step 2: 计算每个实例的有效权重（静态权重 × 预热权重）
+        int[] weights = new int[available.size()];
         int totalWeight = 0;
 
-        for (int i = 0; i < instances.size(); i++) {
-            int effectiveWeight = instances.get(i).getEffectiveWeight();
+        for (int i = 0; i < available.size(); i++) {
+            int effectiveWeight = available.get(i).getEffectiveWeight();
             weights[i] = effectiveWeight;
             totalWeight += effectiveWeight;
         }
 
-        // 如果总权重为 0，给所有实例相等的权重
+        // Step 3: 加权随机选择
+        ServiceInstance selected;
+
         if (totalWeight <= 0) {
-            int index = random.nextInt(instances.size());
-            ServiceInstance selected = instances.get(index);
-            return new InetSocketAddress(selected.getHost(), selected.getPort());
-        }
+            // 总权重为 0，简单随机
+            int index = random.nextInt(available.size());
+            selected = available.get(index);
+        } else {
+            int randomWeight = random.nextInt(totalWeight);
+            int cumulative = 0;
 
-        // 加权随机选择
-        int randomWeight = random.nextInt(totalWeight);
-        int cumulative = 0;
-
-        for (int i = 0; i < instances.size(); i++) {
-            cumulative += weights[i];
-            if (randomWeight < cumulative) {
-                ServiceInstance selected = instances.get(i);
-
-                if (logger.isDebugEnabled()) {
-                    logger.debug("[RandomLoadBalancer] Selected {}:{} for service {} (weight={}/{})",
-                            selected.getHost(), selected.getPort(), serviceName,
-                            weights[i], totalWeight);
+            selected = available.get(0); // 默认第一个
+            for (int i = 0; i < available.size(); i++) {
+                cumulative += weights[i];
+                if (randomWeight < cumulative) {
+                    selected = available.get(i);
+                    break;
                 }
-
-                return new InetSocketAddress(selected.getHost(), selected.getPort());
             }
         }
 
-        // 兜底：返回最后一个实例
-        ServiceInstance last = instances.get(instances.size() - 1);
-        return new InetSocketAddress(last.getHost(), last.getPort());
-    }
+        if (logger.isDebugEnabled()) {
+            logger.debug("[Random] Selected {}:{} for service {} (weight={})",
+                    selected.getHost(), selected.getPort(), serviceName,
+                    selected.getEffectiveWeight());
+        }
 
-    @Override
-    public String getName() {
-        return "random";
+        InetSocketAddress address = new InetSocketAddress(selected.getHost(), selected.getPort());
+        return SelectionResult.simple(address);
     }
 }

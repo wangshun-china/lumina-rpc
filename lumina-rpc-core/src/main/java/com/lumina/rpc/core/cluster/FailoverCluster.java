@@ -3,16 +3,16 @@ package com.lumina.rpc.core.cluster;
 import com.lumina.rpc.core.circuitbreaker.CircuitBreaker;
 import com.lumina.rpc.core.circuitbreaker.CircuitBreakerManager;
 import com.lumina.rpc.core.circuitbreaker.RateLimiterManager;
+import com.lumina.rpc.core.client.ControlPlaneClient;
 import com.lumina.rpc.core.exception.CircuitBreakerException;
 import com.lumina.rpc.core.exception.RateLimitException;
 import com.lumina.rpc.core.protection.ProtectionConfig;
-import com.lumina.rpc.core.protection.ProtectionConfigClient;
-import com.lumina.rpc.core.spi.ActiveCounter;
-import com.lumina.rpc.core.stats.RequestStatsReporter;
-import com.lumina.rpc.core.trace.SpanCollector;
+import com.lumina.rpc.core.spi.SelectionResult;
 import com.lumina.rpc.protocol.RpcResponse;
 import com.lumina.rpc.protocol.trace.Span;
 import com.lumina.rpc.protocol.trace.TraceContext;
+import com.lumina.rpc.core.stats.RequestStatsReporter;
+import com.lumina.rpc.core.trace.SpanCollector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -20,7 +20,6 @@ import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Failover 集群容错策略
@@ -34,8 +33,12 @@ import java.util.concurrent.TimeUnit;
  * - 集成熔断器和限流器保护（支持动态配置）
  * - 支持同步和异步两种调用方式
  *
+ * 改进：
+ * - 负载均衡器负责节点选择和状态管理
+ * - FailoverCluster 只管重试次数控制
+ *
  * @author Lumina-RPC Team
- * @since 1.2.0
+ * @since 1.3.0
  */
 public class FailoverCluster implements Cluster {
 
@@ -60,10 +63,6 @@ public class FailoverCluster implements Cluster {
 
     /**
      * 核心调用逻辑（同步/异步统一实现）
-     *
-     * @param invocation 调用上下文
-     * @param async 是否异步
-     * @return CompletableFuture 包装的结果
      */
     private CompletableFuture<Object> doInvoke(ClusterInvocation invocation, boolean async) {
         CompletableFuture<Object> resultFuture = new CompletableFuture<>();
@@ -72,7 +71,6 @@ public class FailoverCluster implements Cluster {
         String traceId = TraceContext.getTraceId();
         long startTime = System.currentTimeMillis();
 
-        // 创建 Span
         Span span = null;
 
         try {
@@ -111,7 +109,6 @@ public class FailoverCluster implements Cluster {
             int retries = invocation.getRetries();
             int maxAttempts = retries + 1;
 
-            // 创建 Client Span
             span = SpanCollector.getInstance().startClientSpan(serviceName, methodName, null);
             span.addTag("retries", String.valueOf(retries));
             span.addTag("cluster", "failover");
@@ -143,9 +140,15 @@ public class FailoverCluster implements Cluster {
                                     CompletableFuture<Object> resultFuture,
                                     Span span) {
 
-        InetSocketAddress address = invocation.selectAddress(failedAddresses);
+        // ========== 选择节点（负载均衡器内部处理排除和状态管理） ==========
+        SelectionResult selection = invocation.getLoadBalancer().selectWithExclusion(
+                invocation.getInstances(),
+                failedAddresses,
+                serviceName,
+                null
+        );
 
-        if (address == null) {
+        if (selection == null || selection.getAddress() == null) {
             logger.warn("[Trace:{}] [Failover] No more available servers for {}, failed addresses: {}",
                     traceId, serviceName, failedAddresses.size());
 
@@ -165,14 +168,13 @@ public class FailoverCluster implements Cluster {
             return;
         }
 
+        InetSocketAddress address = selection.getAddress();
+        Runnable onCompleteCallback = selection.getOnComplete();
+
         // 更新 Span 的远程地址
         if (span != null) {
             span.setRemoteAddress(address.getHostString() + ":" + address.getPort());
         }
-
-        // 记录活跃调用（用于最少活跃调用负载均衡）
-        String addressKey = address.getHostString() + ":" + address.getPort();
-        ActiveCounter.getInstance().increment(addressKey);
 
         logger.debug("[Trace:{}] [Failover] Attempt {}/{} invoking {} at {}",
                 traceId, attempt, maxAttempts, serviceName, address);
@@ -189,8 +191,10 @@ public class FailoverCluster implements Cluster {
         final InetSocketAddress finalAddress = address;
 
         responseFuture.whenComplete((response, ex) -> {
-            // 减少活跃调用计数
-            ActiveCounter.getInstance().decrement(addressKey);
+            // ========== 执行完成回调（清理负载均衡器内部状态） ==========
+            if (onCompleteCallback != null) {
+                onCompleteCallback.run();
+            }
 
             if (ex != null) {
                 // 调用失败
@@ -257,21 +261,15 @@ public class FailoverCluster implements Cluster {
         });
     }
 
-    /**
-     * 获取动态保护配置
-     */
     private ProtectionConfig getProtectionConfig(String serviceName) {
         try {
-            return ProtectionConfigClient.getInstance().getConfig(serviceName);
+            return ControlPlaneClient.getInstance().getProtectionConfig(serviceName);
         } catch (Exception e) {
             logger.debug("Failed to get protection config for {}, using defaults", serviceName);
             return null;
         }
     }
 
-    /**
-     * 记录请求统计
-     */
     private void recordStats(String serviceName, boolean success, long latencyMs) {
         try {
             RequestStatsReporter.getInstance().recordRequest(serviceName, success, latencyMs);

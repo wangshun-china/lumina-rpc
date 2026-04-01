@@ -3,22 +3,30 @@ package com.lumina.rpc.core.cluster;
 import com.lumina.rpc.core.circuitbreaker.CircuitBreaker;
 import com.lumina.rpc.core.circuitbreaker.CircuitBreakerManager;
 import com.lumina.rpc.core.circuitbreaker.RateLimiterManager;
+import com.lumina.rpc.core.client.ControlPlaneClient;
 import com.lumina.rpc.core.exception.CircuitBreakerException;
 import com.lumina.rpc.core.exception.RateLimitException;
 import com.lumina.rpc.core.protection.ProtectionConfig;
-import com.lumina.rpc.core.protection.ProtectionConfigClient;
+import com.lumina.rpc.core.spi.SelectionResult;
 import com.lumina.rpc.protocol.RpcResponse;
 import com.lumina.rpc.protocol.trace.TraceContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.InetSocketAddress;
+import java.util.Collections;
 
 /**
  * Failfast 集群容错策略
  *
  * 快速失败，只发起一次调用，失败立即报错
  * 集成熔断器和限流器保护（支持动态配置）
+ *
+ * 改进：
+ * - 负载均衡器负责节点选择和状态管理
+ *
+ * @author Lumina-RPC Team
+ * @since 1.3.0
  */
 public class FailfastCluster implements Cluster {
 
@@ -67,15 +75,23 @@ public class FailfastCluster implements Cluster {
             }
         }
 
-        // ========== 3. 选择地址并调用 ==========
-        InetSocketAddress address = invocation.selectAddress(null);
+        // ========== 3. 选择节点（负载均衡器内部处理状态管理） ==========
+        SelectionResult selection = invocation.getLoadBalancer().selectWithExclusion(
+                invocation.getInstances(),
+                Collections.emptyList(),
+                serviceName,
+                null
+        );
 
-        if (address == null) {
+        if (selection == null || selection.getAddress() == null) {
             if (circuitBreaker != null) {
                 circuitBreaker.recordFailure();
             }
             throw new RuntimeException("No available server for: " + serviceName);
         }
+
+        InetSocketAddress address = selection.getAddress();
+        Runnable onCompleteCallback = selection.getOnComplete();
 
         logger.debug("[Trace:{}] [Failfast] Invoking {} at {}", traceId, serviceName, address);
 
@@ -86,6 +102,11 @@ public class FailfastCluster implements Cluster {
                     invocation.getNettyClient(),
                     invocation.getTimeout()
             );
+
+            // 执行完成回调
+            if (onCompleteCallback != null) {
+                onCompleteCallback.run();
+            }
 
             if (response.isSuccess()) {
                 if (circuitBreaker != null) {
@@ -100,6 +121,11 @@ public class FailfastCluster implements Cluster {
             }
 
         } catch (Throwable e) {
+            // 执行完成回调（即使失败也要清理状态）
+            if (onCompleteCallback != null) {
+                onCompleteCallback.run();
+            }
+
             if (circuitBreaker != null) {
                 circuitBreaker.recordFailure();
             }
@@ -111,7 +137,7 @@ public class FailfastCluster implements Cluster {
 
     private ProtectionConfig getProtectionConfig(String serviceName) {
         try {
-            return ProtectionConfigClient.getInstance().getConfig(serviceName);
+            return ControlPlaneClient.getInstance().getProtectionConfig(serviceName);
         } catch (Exception e) {
             return null;
         }

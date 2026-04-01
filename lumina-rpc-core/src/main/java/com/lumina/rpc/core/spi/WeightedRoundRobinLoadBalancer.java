@@ -5,6 +5,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.InetSocketAddress;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -15,12 +16,16 @@ import java.util.concurrent.ConcurrentHashMap;
  * 1. 权重大的实例被选中的次数多（符合预期）
  * 2. 不会连续选中同一个实例（平滑分散）
  * 3. 支持预热权重：预热中的实例 effectiveWeight 低，自然少被选中
+ * 4. 不需要状态管理，回调为空
  *
  * 算法原理：
  * 1. 每次所有实例 currentWeight += effectiveWeight
  * 2. 选中 currentWeight 最大的实例
  * 3. 被选中的实例 currentWeight -= totalWeight
  * 4. 权重大的实例积分涨得快，更容易被选中
+ *
+ * @author Lumina-RPC Team
+ * @since 1.3.0
  */
 public class WeightedRoundRobinLoadBalancer implements LoadBalancer {
 
@@ -34,47 +39,49 @@ public class WeightedRoundRobinLoadBalancer implements LoadBalancer {
     private final ConcurrentHashMap<String, Integer> currentWeights = new ConcurrentHashMap<>();
 
     @Override
-    public InetSocketAddress select(List<InetSocketAddress> serviceAddresses, String serviceName) {
-        if (serviceAddresses == null || serviceAddresses.isEmpty()) {
-            logger.warn("No available service addresses for service: {}", serviceName);
-            return null;
-        }
-
-        if (serviceAddresses.size() == 1) {
-            return serviceAddresses.get(0);
-        }
-
-        // 简单轮询（无权重信息时）
-        return simpleRoundRobin(serviceAddresses, serviceName);
+    public String getName() {
+        return "weighted-round-robin";
     }
 
     @Override
-    public InetSocketAddress selectInstance(List<ServiceInstance> instances, String serviceName) {
-        if (instances == null || instances.isEmpty()) {
-            logger.warn("No available service instances for service: {}", serviceName);
+    public SelectionResult selectWithExclusion(
+            List<ServiceInstance> instances,
+            List<InetSocketAddress> excluded,
+            String serviceName,
+            Object context) {
+
+        // Step 1: 过滤已失败的节点
+        List<ServiceInstance> available = filterExcluded(instances, excluded);
+
+        if (available.isEmpty()) {
+            logger.warn("[WeightedRoundRobin] No available instances for service: {}", serviceName);
             return null;
         }
 
-        if (instances.size() == 1) {
-            ServiceInstance instance = instances.get(0);
-            return new InetSocketAddress(instance.getHost(), instance.getPort());
+        if (available.size() == 1) {
+            ServiceInstance instance = available.get(0);
+            InetSocketAddress address = new InetSocketAddress(instance.getHost(), instance.getPort());
+            // 不需要状态管理，回调为空
+            return SelectionResult.simple(address);
         }
 
-        // 平滑加权轮询核心算法
-        ServiceInstance selected = doSmoothWeightedSelect(instances, serviceName);
+        // Step 2: 平滑加权轮询核心算法
+        ServiceInstance selected = doSmoothWeightedSelect(available, serviceName);
 
         if (selected == null) {
-            // 兜底：简单随机
-            selected = instances.get((int) (Math.random() * instances.size()));
+            // 兜底：随机选择
+            selected = available.get((int) (Math.random() * available.size()));
         }
 
         if (logger.isDebugEnabled()) {
-            logger.debug("[WeightedRoundRobinLoadBalancer] Selected {}:{} for service {} (weight={})",
+            logger.debug("[WeightedRoundRobin] Selected {}:{} for service {} (weight={})",
                     selected.getHost(), selected.getPort(), serviceName,
                     selected.getEffectiveWeight());
         }
 
-        return new InetSocketAddress(selected.getHost(), selected.getPort());
+        InetSocketAddress address = new InetSocketAddress(selected.getHost(), selected.getPort());
+        // 不需要状态管理，回调为空
+        return SelectionResult.simple(address);
     }
 
     /**
@@ -118,7 +125,7 @@ public class WeightedRoundRobinLoadBalancer implements LoadBalancer {
             currentWeights.put(selectedKey, newWeight);
 
             if (logger.isDebugEnabled()) {
-                logger.debug("[WeightedRoundRobinLoadBalancer] {} currentWeight after select: {}",
+                logger.debug("[WeightedRoundRobin] {} currentWeight after select: {}",
                         selectedKey, newWeight);
             }
         }
@@ -131,19 +138,5 @@ public class WeightedRoundRobinLoadBalancer implements LoadBalancer {
      */
     private String buildKey(String serviceName, ServiceInstance instance) {
         return serviceName + "#" + instance.getHost() + ":" + instance.getPort();
-    }
-
-    /**
-     * 简单轮询（无权重时兜底）
-     */
-    private InetSocketAddress simpleRoundRobin(List<InetSocketAddress> addresses, String serviceName) {
-        // 使用当前时间作为简单轮询索引
-        int index = (int) (System.currentTimeMillis() % addresses.size());
-        return addresses.get(index);
-    }
-
-    @Override
-    public String getName() {
-        return "weighted-round-robin";
     }
 }

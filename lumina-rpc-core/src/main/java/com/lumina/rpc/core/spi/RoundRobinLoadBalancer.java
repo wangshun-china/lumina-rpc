@@ -15,6 +15,9 @@ import java.util.concurrent.atomic.AtomicInteger;
  * 支持服务预热：
  * - 新实例启动后，权重从 0 逐渐增加到 1
  * - 预热期间的实例被选中的概率更低
+ *
+ * @author Lumina-RPC Team
+ * @since 1.3.0
  */
 public class RoundRobinLoadBalancer implements LoadBalancer {
 
@@ -24,62 +27,37 @@ public class RoundRobinLoadBalancer implements LoadBalancer {
     private final ConcurrentHashMap<String, AtomicInteger> serviceCounters = new ConcurrentHashMap<>();
 
     @Override
-    public InetSocketAddress select(List<InetSocketAddress> serviceAddresses, String serviceName) {
-        if (serviceAddresses == null || serviceAddresses.isEmpty()) {
-            logger.warn("No available service addresses for service: {}", serviceName);
-            return null;
-        }
-
-        if (serviceAddresses.size() == 1) {
-            return serviceAddresses.get(0);
-        }
-
-        // 获取或创建该服务的计数器
-        AtomicInteger counter = serviceCounters.computeIfAbsent(serviceName, k -> new AtomicInteger(0));
-
-        // 原子性地获取并递增计数器
-        int index = counter.getAndIncrement() % serviceAddresses.size();
-        if (index < 0) {
-            // 处理整数溢出的情况
-            counter.set(0);
-            index = 0;
-        }
-
-        InetSocketAddress selected = serviceAddresses.get(index);
-
-        if (logger.isDebugEnabled()) {
-            logger.debug("Selected address {} for service {} (index: {}, total: {})",
-                    selected, serviceName, index, serviceAddresses.size());
-        }
-
-        return selected;
+    public String getName() {
+        return "round-robin";
     }
 
-    /**
-     * 从服务实例列表中选择（支持预热权重）
-     *
-     * 算法：加权随机选择
-     * - 预热中的实例权重较低，被选中的概率也较低
-     * - 预热完成的实例权重为 1.0，正常接收流量
-     */
     @Override
-    public InetSocketAddress selectInstance(List<ServiceInstance> instances, String serviceName) {
-        if (instances == null || instances.isEmpty()) {
-            logger.warn("No available service instances for service: {}", serviceName);
+    public SelectionResult selectWithExclusion(
+            List<ServiceInstance> instances,
+            List<InetSocketAddress> excluded,
+            String serviceName,
+            Object context) {
+
+        // Step 1: 过滤已失败的节点
+        List<ServiceInstance> available = filterExcluded(instances, excluded);
+
+        if (available.isEmpty()) {
+            logger.warn("[RoundRobin] No available instances for service: {}", serviceName);
             return null;
         }
 
-        if (instances.size() == 1) {
-            ServiceInstance instance = instances.get(0);
-            return new InetSocketAddress(instance.getHost(), instance.getPort());
+        if (available.size() == 1) {
+            ServiceInstance instance = available.get(0);
+            InetSocketAddress address = new InetSocketAddress(instance.getHost(), instance.getPort());
+            return SelectionResult.simple(address);
         }
 
-        // 计算每个实例的预热权重
-        double[] weights = new double[instances.size()];
+        // Step 2: 计算每个实例的预热权重
+        double[] weights = new double[available.size()];
         double totalWeight = 0.0;
 
-        for (int i = 0; i < instances.size(); i++) {
-            ServiceInstance instance = instances.get(i);
+        for (int i = 0; i < available.size(); i++) {
+            ServiceInstance instance = available.get(i);
             double weight = instance.getWarmupWeight();
             weights[i] = weight;
             totalWeight += weight;
@@ -90,40 +68,33 @@ public class RoundRobinLoadBalancer implements LoadBalancer {
             }
         }
 
-        // 如果总权重为 0（所有实例都在预热最开始），给所有实例相等的权重
+        // Step 3: 加权随机选择
         if (totalWeight <= 0) {
-            totalWeight = instances.size();
+            totalWeight = available.size();
             for (int i = 0; i < weights.length; i++) {
                 weights[i] = 1.0;
             }
         }
 
-        // 加权随机选择
         double random = Math.random() * totalWeight;
         double cumulative = 0.0;
 
-        for (int i = 0; i < instances.size(); i++) {
+        ServiceInstance selected = available.get(0);
+        for (int i = 0; i < available.size(); i++) {
             cumulative += weights[i];
             if (random < cumulative) {
-                ServiceInstance selected = instances.get(i);
-
-                if (logger.isDebugEnabled()) {
-                    logger.debug("[LoadBalancer] Selected {}:{} for service {} (weight={:.2f}, warmup={})",
-                            selected.getHost(), selected.getPort(), serviceName,
-                            weights[i], selected.isInWarmup());
-                }
-
-                return new InetSocketAddress(selected.getHost(), selected.getPort());
+                selected = available.get(i);
+                break;
             }
         }
 
-        // 兜底：返回最后一个实例
-        ServiceInstance last = instances.get(instances.size() - 1);
-        return new InetSocketAddress(last.getHost(), last.getPort());
-    }
+        if (logger.isDebugEnabled()) {
+            logger.debug("[RoundRobin] Selected {}:{} for service {} (warmup={})",
+                    selected.getHost(), selected.getPort(), serviceName,
+                    selected.isInWarmup());
+        }
 
-    @Override
-    public String getName() {
-        return "round-robin";
+        InetSocketAddress address = new InetSocketAddress(selected.getHost(), selected.getPort());
+        return SelectionResult.simple(address);
     }
 }

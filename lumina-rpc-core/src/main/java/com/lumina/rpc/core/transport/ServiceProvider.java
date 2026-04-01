@@ -1,10 +1,9 @@
 package com.lumina.rpc.core.transport;
 
 import com.lumina.rpc.core.annotation.LuminaService;
-import com.lumina.rpc.core.discovery.ServiceRegistryClient;
+import com.lumina.rpc.core.client.ControlPlaneClient;
 import com.lumina.rpc.core.metadata.ServiceMetadataExtractor;
 import com.lumina.rpc.core.shutdown.GracefulShutdownManager;
-import com.lumina.rpc.core.shutdown.ShutdownConfigClient;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -105,7 +104,7 @@ public class ServiceProvider {
      * @param controlPlaneUrl 控制平面 URL
      */
     public void setControlPlaneUrl(String controlPlaneUrl) {
-        ServiceRegistryClient.setControlPlaneUrl(controlPlaneUrl);
+        ControlPlaneClient.initialize(controlPlaneUrl);
     }
 
     /**
@@ -279,19 +278,13 @@ public class ServiceProvider {
             // 从控制平面注销
             if (registeredToControlPlane) {
                 try {
-                    ServiceRegistryClient.shutdown();
+                    ControlPlaneClient.getInstance().deregister();
                     logger.info("📡 [Graceful Shutdown] Deregistered from Control Plane");
                 } catch (Exception e) {
                     logger.warn("Error during Control Plane deregistration", e);
                 }
             }
         });
-        // 设置停机超时时间（10秒）
-        shutdownManager.setShutdownTimeout(10000);
-
-        // ========== 启动停机配置同步客户端 ==========
-        ShutdownConfigClient configClient = ShutdownConfigClient.getInstance();
-        configClient.start(primaryServiceName);
 
         // 在新线程中启动服务器，避免阻塞
         new Thread(() -> nettyServer.start(port), "rpc-server-starter").start();
@@ -339,7 +332,7 @@ public class ServiceProvider {
 
             // 注册到控制平面（带元数据）
             try {
-                ServiceRegistryClient.init(primaryServiceName, registryHost, port, "", metadataJson);
+                ControlPlaneClient.getInstance().register(primaryServiceName, registryHost, port, "", metadataJson);
                 registeredToControlPlane = true;
 
                 logger.info("✅ [Control Plane] Registered to control plane: {} at {}:{}",

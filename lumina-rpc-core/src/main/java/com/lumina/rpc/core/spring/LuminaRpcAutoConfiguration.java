@@ -1,8 +1,6 @@
 package com.lumina.rpc.core.spring;
 
-import com.lumina.rpc.core.discovery.ServiceDiscoveryClient;
-import com.lumina.rpc.core.mock.MockRuleSubscriptionClient;
-import com.lumina.rpc.core.protection.ProtectionConfigClient;
+import com.lumina.rpc.core.client.ControlPlaneClient;
 import com.lumina.rpc.core.proxy.ProxyFactory;
 import com.lumina.rpc.core.stats.RequestStatsReporter;
 import com.lumina.rpc.core.trace.TraceReporter;
@@ -91,12 +89,6 @@ public class LuminaRpcAutoConfiguration {
     private String mockSubscribeServices;
 
     /**
-     * 保护配置刷新间隔（秒）
-     */
-    @Value("${lumina.rpc.protection.refresh-interval:1}")
-    private int protectionRefreshInterval = 1;
-
-    /**
      * 构造方法 - 记录自动配置启动信息
      */
     public LuminaRpcAutoConfiguration() {
@@ -104,49 +96,35 @@ public class LuminaRpcAutoConfiguration {
     }
 
     /**
-     * 初始化服务发现客户端
+     * 初始化控制平面客户端（统一入口）
      */
     @PostConstruct
-    public void initServiceDiscovery() {
-        log.info("🔍 [Lumina-RPC] Initializing service discovery client, control plane: {}", controlPlaneUrl);
-        ServiceDiscoveryClient.init(controlPlaneUrl, discoveryRefreshInterval);
+    public void initControlPlaneClient() {
+        log.info("🚀 [Lumina-RPC] Initializing ControlPlaneClient, control plane: {}", controlPlaneUrl);
+
+        // 初始化统一的控制平面客户端
+        ControlPlaneClient.initialize(controlPlaneUrl);
+
+        // 启动服务发现（Consumer端）
+        ControlPlaneClient.getInstance().startDiscovery(discoveryRefreshInterval);
 
         // 初始化 TraceReporter（链路追踪上报）
         TraceReporter.getInstance().setControlPlaneUrl(controlPlaneUrl);
         log.info("📡 [Lumina-RPC] TraceReporter initialized, control plane: {}", controlPlaneUrl);
 
-        // 初始化保护配置客户端（熔断器/限流器动态配置）
-        initProtectionConfigClient();
-
-        // 初始化 Mock 规则订阅（如果启用）
-        if (mockEnabled) {
-            initMockSubscription();
-        }
-    }
-
-    /**
-     * 初始化保护配置客户端
-     */
-    private void initProtectionConfigClient() {
-        log.info("🛡️ [Lumina-RPC] Initializing protection config client (refresh interval: {}s)", protectionRefreshInterval);
-        ProtectionConfigClient.initialize(controlPlaneUrl, protectionRefreshInterval);
-        ProtectionConfigClient.getInstance().startRefresh();
-
         // 初始化请求统计上报器
         RequestStatsReporter.initialize(controlPlaneUrl);
         RequestStatsReporter.getInstance().start();
-    }
 
-    /**
-     * 初始化 Mock 规则订阅
-     */
-    private void initMockSubscription() {
-        List<String> services = parseServiceList(mockSubscribeServices);
-        if (!services.isEmpty()) {
-            log.info("📡 [Lumina-RPC] Initializing Mock rule subscription for {} services", services.size());
-            MockRuleSubscriptionClient.init(controlPlaneUrl, services);
-        } else {
-            log.info("📡 [Lumina-RPC] Mock enabled but no services configured for subscription");
+        // 初始化 Mock 规则订阅（如果启用）
+        if (mockEnabled) {
+            List<String> services = parseServiceList(mockSubscribeServices);
+            if (!services.isEmpty()) {
+                log.info("📡 [Lumina-RPC] Starting Mock rule subscription for {} services", services.size());
+                ControlPlaneClient.getInstance().startSubscription(services);
+            } else {
+                log.info("📡 [Lumina-RPC] Mock enabled but no services configured for subscription");
+            }
         }
     }
 

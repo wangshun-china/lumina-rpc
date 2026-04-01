@@ -3,16 +3,19 @@ package com.lumina.rpc.core.cluster;
 import com.lumina.rpc.core.circuitbreaker.CircuitBreaker;
 import com.lumina.rpc.core.circuitbreaker.CircuitBreakerManager;
 import com.lumina.rpc.core.circuitbreaker.RateLimiterManager;
+import com.lumina.rpc.core.client.ControlPlaneClient;
 import com.lumina.rpc.core.exception.CircuitBreakerException;
 import com.lumina.rpc.core.exception.RateLimitException;
 import com.lumina.rpc.core.protection.ProtectionConfig;
-import com.lumina.rpc.core.protection.ProtectionConfigClient;
+import com.lumina.rpc.core.spi.SelectionResult;
 import com.lumina.rpc.protocol.RpcResponse;
 import com.lumina.rpc.protocol.trace.TraceContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.InetSocketAddress;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
@@ -31,8 +34,11 @@ import java.util.concurrent.atomic.AtomicInteger;
  * - 消耗更多服务器资源
  * - 集成熔断器和限流器保护
  *
+ * 改进：
+ * - 负载均衡器负责节点选择和状态管理
+ *
  * @author Lumina-RPC Team
- * @since 1.2.0
+ * @since 1.3.0
  */
 public class ForkingCluster implements Cluster {
 
@@ -84,7 +90,7 @@ public class ForkingCluster implements Cluster {
             }
         }
 
-        // ========== 3. 执行并行调用 ==========
+        // ========== 3. 选择多个节点并行调用 ==========
         List<InetSocketAddress> addresses = invocation.getAllAddresses();
 
         if (addresses == null || addresses.isEmpty()) {
@@ -98,17 +104,50 @@ public class ForkingCluster implements Cluster {
 
         logger.debug("[Trace:{}] [Forking] Invoking {} with {} parallel calls", traceId, serviceName, forks);
 
-        // 用于存储结果
+        // 存储每个并行调用的结果
         CompletableFuture<Object> resultFuture = new CompletableFuture<>();
         AtomicInteger successCount = new AtomicInteger(0);
         AtomicInteger failCount = new AtomicInteger(0);
         AtomicBoolean recorded = new AtomicBoolean(false);
+
         final CircuitBreaker finalCircuitBreaker = circuitBreaker;
         final String finalTraceId = traceId;
 
-        // 并行发起调用
+        // 记录每个调用的完成回调
+        List<Runnable> onCompleteCallbacks = new ArrayList<>();
+        List<InetSocketAddress> selectedAddresses = new ArrayList<>();
+
+        // 选择 forks 个节点（使用负载均衡器）
         for (int i = 0; i < forks; i++) {
-            InetSocketAddress address = addresses.get(i);
+            // 每次选择都排除已选中的地址
+            SelectionResult selection = invocation.getLoadBalancer().selectWithExclusion(
+                    invocation.getInstances(),
+                    selectedAddresses,  // 排除已选中的
+                    serviceName,
+                    null
+            );
+
+            if (selection == null || selection.getAddress() == null) {
+                break;
+            }
+
+            selectedAddresses.add(selection.getAddress());
+            if (selection.getOnComplete() != null) {
+                onCompleteCallbacks.add(selection.getOnComplete());
+            }
+        }
+
+        if (selectedAddresses.isEmpty()) {
+            if (finalCircuitBreaker != null) {
+                finalCircuitBreaker.recordFailure();
+            }
+            throw new RuntimeException("No available server for: " + serviceName);
+        }
+
+        // 并行发起调用
+        for (int i = 0; i < selectedAddresses.size(); i++) {
+            InetSocketAddress address = selectedAddresses.get(i);
+            final int callbackIndex = i;
 
             CompletableFuture.runAsync(() -> {
                 try {
@@ -118,6 +157,11 @@ public class ForkingCluster implements Cluster {
                             invocation.getNettyClient(),
                             invocation.getTimeout()
                     );
+
+                    // 执行完成回调
+                    if (callbackIndex < onCompleteCallbacks.size()) {
+                        onCompleteCallbacks.get(callbackIndex).run();
+                    }
 
                     if (response.isSuccess()) {
                         // 第一个成功的，设置结果并记录成功
@@ -132,14 +176,19 @@ public class ForkingCluster implements Cluster {
                             }
                         }
                     } else {
-                        handleFailure(failCount, forks, resultFuture,
+                        handleFailure(failCount, selectedAddresses.size(), resultFuture,
                                 "RPC failed: " + response.getMessage(), serviceName, finalTraceId);
                     }
 
                 } catch (Throwable e) {
+                    // 执行完成回调（即使失败也要清理状态）
+                    if (callbackIndex < onCompleteCallbacks.size()) {
+                        onCompleteCallbacks.get(callbackIndex).run();
+                    }
+
                     logger.warn("[Trace:{}] [Forking] Call failed for {} at {}: {}",
                             finalTraceId, serviceName, address, e.getMessage());
-                    handleFailure(failCount, forks, resultFuture, e.getMessage(), serviceName, finalTraceId);
+                    handleFailure(failCount, selectedAddresses.size(), resultFuture, e.getMessage(), serviceName, finalTraceId);
                 }
             });
         }
@@ -154,7 +203,7 @@ public class ForkingCluster implements Cluster {
                 finalCircuitBreaker.recordFailure();
             }
 
-            logger.error("[Trace:{}] [Forking] All {} parallel calls failed for {}", traceId, forks, serviceName);
+            logger.error("[Trace:{}] [Forking] All {} parallel calls failed for {}", traceId, selectedAddresses.size(), serviceName);
             throw new RuntimeException("All forked calls failed for: " + serviceName, e);
         }
     }
@@ -168,7 +217,7 @@ public class ForkingCluster implements Cluster {
 
     private ProtectionConfig getProtectionConfig(String serviceName) {
         try {
-            return ProtectionConfigClient.getInstance().getConfig(serviceName);
+            return ControlPlaneClient.getInstance().getProtectionConfig(serviceName);
         } catch (Exception e) {
             return null;
         }

@@ -127,10 +127,10 @@ jobs:
           docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dashboard-${{ steps.version.outputs.VERSION }}
 
   deploy:
-    name: Deploy to ${{ github.event.inputs.target_env || 'aliyun' }}
+    name: Deploy to ${{ github.event.inputs.target_env || 'wsl' }}
     needs: build-and-push
     # 神级代码：如果是网页端手动选的就用选的标签，如果是 push 代码自动触发的，默认用 aliyun
-    runs-on: [self-hosted, "${{ github.event.inputs.target_env || 'aliyun' }}"]
+    runs-on: [self-hosted, "${{ github.event.inputs.target_env || 'wsl' }}"]
     env:
       VERSION: ${{ needs.build-and-push.outputs.VERSION }}
 

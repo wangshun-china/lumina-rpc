@@ -8,13 +8,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 保护配置服务
+ * 保护配置服务（简化版，对标 Dubbo）
  *
  * 管理熔断器和限流器的动态配置
+ * 移除内存缓存，直接查数据库（配置数量有限，性能足够）
+ * 移除版本号机制，SSE 推送已足够可靠
  */
 @Service
 public class ProtectionConfigService {
@@ -24,29 +24,11 @@ public class ProtectionConfigService {
     private final ProtectionConfigRepository repository;
     private final SseBroadcastService sseBroadcastService;
 
-    /** 配置缓存（用于快速查询） */
-    private final Map<String, ProtectionConfigEntity> configCache = new ConcurrentHashMap<>();
-
-    /** 配置版本号（用于检测更新） */
-    private volatile long globalVersion = System.currentTimeMillis();
-
     public ProtectionConfigService(ProtectionConfigRepository repository,
                                    SseBroadcastService sseBroadcastService) {
         this.repository = repository;
         this.sseBroadcastService = sseBroadcastService;
-        loadAllConfigs();
-    }
-
-    /**
-     * 加载所有配置到缓存
-     */
-    private void loadAllConfigs() {
-        List<ProtectionConfigEntity> configs = repository.findAll();
-        configCache.clear();
-        for (ProtectionConfigEntity config : configs) {
-            configCache.put(config.getServiceName(), config);
-        }
-        logger.info("Loaded {} protection configs into cache", configs.size());
+        logger.info("ProtectionConfigService initialized (no cache, direct DB access)");
     }
 
     /**
@@ -57,13 +39,9 @@ public class ProtectionConfigService {
     }
 
     /**
-     * 根据 serviceName 获取配置（优先从缓存）
+     * 根据 serviceName 获取配置
      */
     public ProtectionConfigEntity findByServiceName(String serviceName) {
-        ProtectionConfigEntity cached = configCache.get(serviceName);
-        if (cached != null) {
-            return cached;
-        }
         return repository.findByServiceName(serviceName).orElse(null);
     }
 
@@ -71,12 +49,11 @@ public class ProtectionConfigService {
      * 获取或创建默认配置
      */
     public ProtectionConfigEntity getOrCreateDefault(String serviceName) {
-        ProtectionConfigEntity config = findByServiceName(serviceName);
+        ProtectionConfigEntity config = repository.findByServiceName(serviceName).orElse(null);
         if (config == null) {
             config = new ProtectionConfigEntity();
             config.setServiceName(serviceName);
             config = repository.save(config);
-            configCache.put(serviceName, config);
             logger.info("Created default protection config for service: {}", serviceName);
         }
         return config;
@@ -88,8 +65,6 @@ public class ProtectionConfigService {
     @Transactional
     public ProtectionConfigEntity save(ProtectionConfigEntity config) {
         ProtectionConfigEntity saved = repository.save(config);
-        configCache.put(saved.getServiceName(), saved);
-        globalVersion = System.currentTimeMillis();
         logger.info("Saved protection config for service: {}", saved.getServiceName());
 
         // 广播配置变更事件（SSE实时推送）
@@ -109,7 +84,6 @@ public class ProtectionConfigService {
             }
         } catch (Exception e) {
             logger.warn("Failed to broadcast config change: {}", e.getMessage());
-            // 不影响主流程，仅记录日志
         }
     }
 
@@ -119,10 +93,6 @@ public class ProtectionConfigService {
     @Transactional
     public List<ProtectionConfigEntity> saveAll(List<ProtectionConfigEntity> configs) {
         List<ProtectionConfigEntity> saved = repository.saveAll(configs);
-        for (ProtectionConfigEntity config : saved) {
-            configCache.put(config.getServiceName(), config);
-        }
-        globalVersion = System.currentTimeMillis();
         logger.info("Saved {} protection configs", saved.size());
         return saved;
     }
@@ -133,8 +103,6 @@ public class ProtectionConfigService {
     @Transactional
     public void delete(String serviceName) {
         repository.deleteByServiceName(serviceName);
-        configCache.remove(serviceName);
-        globalVersion = System.currentTimeMillis();
         logger.info("Deleted protection config for service: {}", serviceName);
     }
 
@@ -210,27 +178,5 @@ public class ProtectionConfigService {
                 serviceName, timeoutMs, retries, clusterStrategy);
 
         return save(config);
-    }
-
-    /**
-     * 获取全局版本号（用于检测配置变更）
-     */
-    public long getGlobalVersion() {
-        return globalVersion;
-    }
-
-    /**
-     * 刷新缓存
-     */
-    public void refreshCache() {
-        loadAllConfigs();
-        globalVersion = System.currentTimeMillis();
-    }
-
-    /**
-     * 获取缓存大小
-     */
-    public int getCacheSize() {
-        return configCache.size();
     }
 }

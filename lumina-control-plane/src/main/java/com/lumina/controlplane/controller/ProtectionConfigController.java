@@ -12,9 +12,10 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 保护配置控制器
+ * 保护配置控制器（简化版，对标 Dubbo）
  *
  * 提供熔断器和限流器的动态配置 API
+ * 移除版本号机制，SSE 推送已足够可靠
  */
 @RestController
 @RequestMapping("/api/v1/protection")
@@ -38,7 +39,6 @@ public class ProtectionConfigController {
         Map<String, Object> result = new HashMap<>();
         result.put("configs", configs);
         result.put("total", configs.size());
-        result.put("version", service.getGlobalVersion());
 
         return ResponseEntity.ok(result);
     }
@@ -133,17 +133,6 @@ public class ProtectionConfigController {
     }
 
     /**
-     * 检查配置版本（用于 Consumer 轮询检测变更）
-     */
-    @GetMapping("/version")
-    public ResponseEntity<Map<String, Object>> getVersion() {
-        Map<String, Object> result = new HashMap<>();
-        result.put("version", service.getGlobalVersion());
-        result.put("timestamp", System.currentTimeMillis());
-        return ResponseEntity.ok(result);
-    }
-
-    /**
      * 批量获取配置（用于 Consumer 启动时加载）
      */
     @PostMapping("/configs/batch")
@@ -159,22 +148,6 @@ public class ProtectionConfigController {
 
         Map<String, Object> result = new HashMap<>();
         result.put("configs", configs);
-        result.put("version", service.getGlobalVersion());
-        return ResponseEntity.ok(result);
-    }
-
-    /**
-     * 刷新缓存
-     */
-    @PostMapping("/refresh")
-    public ResponseEntity<Map<String, Object>> refresh() {
-        logger.info("Refreshing protection config cache");
-        service.refreshCache();
-
-        Map<String, Object> result = new HashMap<>();
-        result.put("success", true);
-        result.put("cacheSize", service.getCacheSize());
-        result.put("version", service.getGlobalVersion());
         return ResponseEntity.ok(result);
     }
 
@@ -215,7 +188,6 @@ public class ProtectionConfigController {
         result.put("circuitBreaker", circuitBreaker);
         result.put("rateLimiter", rateLimiter);
         result.put("totalServices", configs.size());
-        result.put("version", service.getGlobalVersion());
 
         return ResponseEntity.ok(result);
     }

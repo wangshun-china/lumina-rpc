@@ -169,6 +169,9 @@
               <p class="text-xs text-slate-500 mt-1">熔断后等待多久进入半开状态试探</p>
             </div>
           </div>
+          <div v-if="form.circuitBreakerEnabled" class="p-2 bg-amber-900/20 border border-amber-800/50 rounded text-xs text-amber-300">
+            💡 <strong>三态模型：</strong>CLOSED（正常）→ OPEN（熔断，拒绝所有请求）→ HALF-OPEN（试探，放行一个请求测试）。错误率 = 失败数 / 总请求数 × 100%
+          </div>
           <div v-else class="text-xs text-slate-500">
             💡 熔断器关闭时将不进行错误率统计和自动熔断保护
           </div>
@@ -187,7 +190,9 @@
           <div v-if="form.rateLimiterEnabled">
             <label class="block text-xs text-slate-400 mb-1">每秒请求数 (QPS)</label>
             <el-input-number v-model="form.rateLimiterPermits" :min="1" :max="100000" class="w-full" />
-            <p class="text-xs text-slate-500 mt-1">超过此阈值的请求将被直接拒绝，用于保护后端服务不被过载</p>
+            <div class="mt-2 p-2 bg-blue-900/20 border border-blue-800/50 rounded text-xs text-blue-300">
+              💡 <strong>令牌桶原理：</strong>内部预存 QPS × 5 的令牌池，可应对突发流量。例如 QPS=100 时，池中有 500 个令牌，瞬间可处理 500 个请求，之后恢复到 100/秒。
+            </div>
           </div>
           <div v-else class="text-xs text-slate-500">
             💡 限流器关闭时不会限制请求流量，后端服务可能面临过载风险
@@ -218,6 +223,25 @@
             <div>
               <label class="block text-xs text-slate-400 mb-1">重试次数</label>
               <el-input-number v-model="form.retries" :min="0" :max="10" class="w-full" />
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-2 text-xs">
+            <div class="p-2 bg-blue-900/20 border border-blue-800/50 rounded">
+              <span class="text-blue-400 font-medium">Failover：</span>
+              <span class="text-slate-300">失败后自动重试其他节点，适合读操作</span>
+            </div>
+            <div class="p-2 bg-amber-900/20 border border-amber-800/50 rounded">
+              <span class="text-amber-400 font-medium">Failfast：</span>
+              <span class="text-slate-300">失败立即报错，适合非幂等写操作</span>
+            </div>
+            <div class="p-2 bg-green-900/20 border border-green-800/50 rounded">
+              <span class="text-green-400 font-medium">Failsafe：</span>
+              <span class="text-slate-300">失败返回 null，适合日志等非关键操作</span>
+            </div>
+            <div class="p-2 bg-purple-900/20 border border-purple-800/50 rounded">
+              <span class="text-purple-400 font-medium">Forking：</span>
+              <span class="text-slate-300">并行调用多个节点，取最快响应</span>
             </div>
           </div>
 

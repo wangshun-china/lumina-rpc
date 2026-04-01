@@ -18,6 +18,11 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * 基于一致性哈希算法选择实例，相同参数的请求总是路由到同一实例
  * 适用于需要会话保持的场景
+ *
+ * 注意：一致性哈希场景下，排除失败节点可能导致相同 key 路由到不同实例
+ *
+ * @author Lumina-RPC Team
+ * @since 1.3.0
  */
 public class ConsistentHashLoadBalancer implements LoadBalancer {
 
@@ -30,64 +35,68 @@ public class ConsistentHashLoadBalancer implements LoadBalancer {
     private final ConcurrentHashMap<String, ConsistentHashRing> ringMap = new ConcurrentHashMap<>();
 
     @Override
-    public InetSocketAddress select(List<InetSocketAddress> serviceAddresses, String serviceName) {
-        if (serviceAddresses == null || serviceAddresses.isEmpty()) {
-            logger.warn("No available service addresses for service: {}", serviceName);
-            return null;
-        }
-
-        if (serviceAddresses.size() == 1) {
-            return serviceAddresses.get(0);
-        }
-
-        // 使用服务名作为默认的 hash key
-        return selectWithKey(serviceAddresses, serviceName, serviceName);
+    public String getName() {
+        return "consistent-hash";
     }
 
     @Override
-    public InetSocketAddress selectInstance(List<ServiceInstance> instances, String serviceName) {
-        if (instances == null || instances.isEmpty()) {
-            logger.warn("No available service instances for service: {}", serviceName);
+    public SelectionResult selectWithExclusion(
+            List<ServiceInstance> instances,
+            List<InetSocketAddress> excluded,
+            String serviceName,
+            Object context) {
+
+        // Step 1: 过滤已失败的节点
+        List<ServiceInstance> available = filterExcluded(instances, excluded);
+
+        if (available.isEmpty()) {
+            logger.warn("[ConsistentHash] No available instances for service: {}", serviceName);
             return null;
         }
 
-        if (instances.size() == 1) {
-            ServiceInstance instance = instances.get(0);
-            return new InetSocketAddress(instance.getHost(), instance.getPort());
+        if (available.size() == 1) {
+            ServiceInstance instance = available.get(0);
+            InetSocketAddress address = new InetSocketAddress(instance.getHost(), instance.getPort());
+            return SelectionResult.simple(address);
         }
 
-        // 使用服务名作为默认的 hash key
-        ConsistentHashRing ring = getOrCreateRing(instances, serviceName);
-        String address = ring.getNode(serviceName);
+        // Step 2: 使用服务名作为默认的 hash key
+        // 如果 context 是字符串，使用它作为 hash key
+        String hashKey = (context instanceof String) ? (String) context : serviceName;
+
+        ConsistentHashRing ring = getOrCreateRing(available, serviceName);
+        String addressStr = ring.getNode(hashKey);
+
+        if (addressStr == null) {
+            logger.warn("[ConsistentHash] No node found for key: {}", hashKey);
+            return null;
+        }
 
         if (logger.isDebugEnabled()) {
-            logger.debug("[ConsistentHashLoadBalancer] Selected {} for service {}",
-                    address, serviceName);
+            logger.debug("[ConsistentHash] Selected {} for service {} (key={})",
+                    addressStr, serviceName, hashKey);
         }
 
-        String[] parts = address.split(":");
-        return new InetSocketAddress(parts[0], Integer.parseInt(parts[1]));
+        String[] parts = addressStr.split(":");
+        InetSocketAddress address = new InetSocketAddress(parts[0], Integer.parseInt(parts[1]));
+        return SelectionResult.simple(address);
     }
 
     /**
-     * 根据指定的 key 选择实例
+     * 根据指定的 key 选择实例（带排除列表）
      *
-     * @param serviceAddresses 服务地址列表
-     * @param serviceName      服务名
-     * @param key              哈希 key
+     * @param instances   服务实例列表
+     * @param excluded    排除的地址
+     * @param serviceName 服务名
+     * @param key         哈希 key
      * @return 选中的地址
      */
-    public InetSocketAddress selectWithKey(List<InetSocketAddress> serviceAddresses, String serviceName, String key) {
-        // 为地址列表创建临时的哈希环
-        ConsistentHashRing ring = new ConsistentHashRing();
-        for (InetSocketAddress address : serviceAddresses) {
-            String addressKey = address.getHostString() + ":" + address.getPort();
-            ring.addNode(addressKey, VIRTUAL_NODES);
-        }
-
-        String selected = ring.getNode(key);
-        String[] parts = selected.split(":");
-        return new InetSocketAddress(parts[0], Integer.parseInt(parts[1]));
+    public SelectionResult selectWithKey(
+            List<ServiceInstance> instances,
+            List<InetSocketAddress> excluded,
+            String serviceName,
+            String key) {
+        return selectWithExclusion(instances, excluded, serviceName, key);
     }
 
     /**
@@ -178,10 +187,5 @@ public class ConsistentHashLoadBalancer implements LoadBalancer {
                 return key.hashCode();
             }
         }
-    }
-
-    @Override
-    public String getName() {
-        return "consistent-hash";
     }
 }

@@ -3,20 +3,28 @@ package com.lumina.rpc.core.cluster;
 import com.lumina.rpc.core.circuitbreaker.CircuitBreaker;
 import com.lumina.rpc.core.circuitbreaker.CircuitBreakerManager;
 import com.lumina.rpc.core.circuitbreaker.RateLimiterManager;
+import com.lumina.rpc.core.client.ControlPlaneClient;
 import com.lumina.rpc.core.protection.ProtectionConfig;
-import com.lumina.rpc.core.protection.ProtectionConfigClient;
+import com.lumina.rpc.core.spi.SelectionResult;
 import com.lumina.rpc.protocol.RpcResponse;
 import com.lumina.rpc.protocol.trace.TraceContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.InetSocketAddress;
+import java.util.Collections;
 
 /**
  * Failsafe 集群容错策略
  *
  * 失败安全，出现异常时直接忽略，返回 null 或默认值
  * 集成熔断器和限流器保护（支持动态配置）
+ *
+ * 改进：
+ * - 负载均衡器负责节点选择和状态管理
+ *
+ * @author Lumina-RPC Team
+ * @since 1.3.0
  */
 public class FailsafeCluster implements Cluster {
 
@@ -64,13 +72,21 @@ public class FailsafeCluster implements Cluster {
             }
         }
 
-        // ========== 3. 选择地址并调用 ==========
-        InetSocketAddress address = invocation.selectAddress(null);
+        // ========== 3. 选择节点（负载均衡器内部处理状态管理） ==========
+        SelectionResult selection = invocation.getLoadBalancer().selectWithExclusion(
+                invocation.getInstances(),
+                Collections.emptyList(),
+                serviceName,
+                null
+        );
 
-        if (address == null) {
+        if (selection == null || selection.getAddress() == null) {
             logger.warn("[Trace:{}] [Failsafe] No available server for {}, returning null", traceId, serviceName);
             return null;
         }
+
+        InetSocketAddress address = selection.getAddress();
+        Runnable onCompleteCallback = selection.getOnComplete();
 
         logger.debug("[Trace:{}] [Failsafe] Invoking {} at {}", traceId, serviceName, address);
 
@@ -81,6 +97,11 @@ public class FailsafeCluster implements Cluster {
                     invocation.getNettyClient(),
                     invocation.getTimeout()
             );
+
+            // 执行完成回调
+            if (onCompleteCallback != null) {
+                onCompleteCallback.run();
+            }
 
             if (response.isSuccess()) {
                 if (circuitBreaker != null) {
@@ -97,6 +118,11 @@ public class FailsafeCluster implements Cluster {
             }
 
         } catch (Throwable e) {
+            // 执行完成回调（即使失败也要清理状态）
+            if (onCompleteCallback != null) {
+                onCompleteCallback.run();
+            }
+
             if (circuitBreaker != null) {
                 circuitBreaker.recordFailure();
             }
@@ -108,7 +134,7 @@ public class FailsafeCluster implements Cluster {
 
     private ProtectionConfig getProtectionConfig(String serviceName) {
         try {
-            return ProtectionConfigClient.getInstance().getConfig(serviceName);
+            return ControlPlaneClient.getInstance().getProtectionConfig(serviceName);
         } catch (Exception e) {
             return null;
         }
