@@ -33,7 +33,6 @@ lumina:
 # 日志配置
 logging:
   level:
-    com.lumina.sample.engine: INFO
-    com.lumina.rpc: DEBUG
+    com.lumina: ${LOG_LEVEL:DEBUG}
   pattern:
     console: "%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"

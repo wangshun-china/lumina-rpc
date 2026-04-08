@@ -10,7 +10,6 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 /**
  * 服务实例管理控制器
@@ -54,9 +53,11 @@ public class ServiceInstanceController {
     public ResponseEntity<ServiceInstanceEntity> getInstanceById(
             @PathVariable("instanceId") String instanceId) {
         logger.debug("Getting instance by id: {}", instanceId);
-        return serviceInstanceService.findByInstanceId(instanceId)
-                .map(ResponseEntity::ok)
-                .orElse(ResponseEntity.notFound().build());
+        ServiceInstanceEntity instance = serviceInstanceService.findByInstanceId(instanceId);
+        if (instance == null) {
+            return ResponseEntity.notFound().build();
+        }
+        return ResponseEntity.ok(instance);
     }
 
     /**

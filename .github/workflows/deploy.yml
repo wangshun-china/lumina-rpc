@@ -197,7 +197,8 @@ jobs:
               restart: unless-stopped
               environment:
                 JAVA_OPTS: "-Xms128m -Xmx256m -XX:+UseG1GC -XX:+ExitOnOutOfMemoryError"
-                SPRING_PROFILES_ACTIVE: prod
+                LOG_LEVEL: INFO
+                MYBATIS_LOG: org.apache.ibatis.logging.nologging.NoLoggingImpl
                 MYSQL_URL: jdbc:mysql://lumina-mysql:3306/lumina?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
                 MYSQL_USER: ${{ env.MYSQL_USER }}
                 MYSQL_PASSWORD: ${{ env.MYSQL_PASSWORD }}
@@ -245,6 +246,7 @@ jobs:
               restart: unless-stopped
               environment:
                 JAVA_OPTS: "-Xms128m -Xmx256m -XX:+ExitOnOutOfMemoryError"
+                LOG_LEVEL: INFO
                 LUMINA_RPC_CONTROL_PLANE_URL: http://control-plane:8080
                 LUMINA_RPC_SERVER_HOST: sample-engine
                 TZ: Asia/Shanghai
@@ -269,6 +271,7 @@ jobs:
               restart: unless-stopped
               environment:
                 JAVA_OPTS: "-Xms128m -Xmx256m -XX:+ExitOnOutOfMemoryError"
+                LOG_LEVEL: INFO
                 LUMINA_RPC_CONTROL_PLANE_URL: http://control-plane:8080
                 LUMINA_RPC_SERVER_HOST: sample-radar
                 TZ: Asia/Shanghai
@@ -293,6 +296,7 @@ jobs:
               restart: unless-stopped
               environment:
                 JAVA_OPTS: "-Xms128m -Xmx256m -XX:+ExitOnOutOfMemoryError"
+                LOG_LEVEL: INFO
                 LUMINA_RPC_CONTROL_PLANE_URL: http://control-plane:8080
                 TZ: Asia/Shanghai
               ports:

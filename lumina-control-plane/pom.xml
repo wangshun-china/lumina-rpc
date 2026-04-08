@@ -22,10 +22,27 @@
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
 
-        <!-- Spring Boot Starter Data JPA -->
+        <!-- Spring Boot Starter JDBC (MyBatis-Flex 需要) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-data-jpa</artifactId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
+        </dependency>
+
+        <!-- MyBatis-Flex -->
+        <dependency>
+            <groupId>com.mybatis-flex</groupId>
+            <artifactId>mybatis-flex-spring-boot3-starter</artifactId>
+            <version>1.9.7</version>
+        </dependency>
+
+        <!-- Flyway 数据库版本管理 -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-mysql</artifactId>
         </dependency>
 
         <!-- Jackson for JSON processing -->
@@ -34,21 +51,12 @@
             <artifactId>jackson-databind</artifactId>
         </dependency>
 
-        <!-- H2 Database (用于开发/测试) -->
-<!--        <dependency>-->
-<!--            <groupId>com.h2database</groupId>-->
-<!--            <artifactId>h2</artifactId>-->
-<!--            <scope>runtime</scope>-->
-<!--            <optional>true</optional>-->
-<!--        </dependency>-->
-
-        <!-- 测试相关依赖（解决@Test/@SpringBootTest找不到的问题） -->
+        <!-- 测试相关依赖 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
-            <scope>test</scope> <!-- 仅测试阶段生效 -->
+            <scope>test</scope>
         </dependency>
-        <!-- JUnit 5 核心依赖（兜底，spring-boot-starter-test已包含，可省略） -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter-api</artifactId>

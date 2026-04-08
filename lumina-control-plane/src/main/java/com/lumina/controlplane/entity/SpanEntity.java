@@ -1,79 +1,56 @@
 package com.lumina.controlplane.entity;
 
-import jakarta.persistence.*;
+import com.mybatisflex.annotation.Column;
+import com.mybatisflex.annotation.Id;
+import com.mybatisflex.annotation.KeyType;
+import com.mybatisflex.annotation.Table;
+
 import java.time.LocalDateTime;
 
 /**
- * Span 实体
- *
- * 存储链路追踪的 Span 数据
+ * Span 链路追踪实体
  */
-@Entity
-@Table(name = "lumina_span", indexes = {
-    @Index(name = "idx_trace_id", columnList = "trace_id"),
-    @Index(name = "idx_service_name", columnList = "service_name"),
-    @Index(name = "idx_start_time", columnList = "start_time")
-})
+@Table("lumina_span")
 public class SpanEntity {
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Id(keyType = KeyType.Auto)
     private Long id;
 
-    /** Trace ID */
-    @Column(name = "trace_id", nullable = false, length = 64)
+    @Column("trace_id")
     private String traceId;
 
-    /** Span ID */
-    @Column(name = "span_id", nullable = false, length = 64)
+    @Column("span_id")
     private String spanId;
 
-    /** 父 Span ID */
-    @Column(name = "parent_span_id", length = 64)
+    @Column("parent_span_id")
     private String parentSpanId;
 
-    /** 服务名称 */
-    @Column(name = "service_name", nullable = false, length = 255)
+    @Column("service_name")
     private String serviceName;
 
-    /** 方法名称 */
-    @Column(name = "method_name", length = 255)
+    @Column("method_name")
     private String methodName;
 
-    /** Span 类型：CLIENT / SERVER */
-    @Column(name = "kind", length = 16)
+    @Column("kind")
     private String kind;
 
-    /** 开始时间戳（毫秒） */
-    @Column(name = "start_time")
+    @Column("start_time")
     private Long startTime;
 
-    /** 耗时（毫秒） */
-    @Column(name = "duration")
+    @Column("duration")
     private Long duration;
 
-    /** 是否成功 */
-    @Column(name = "success")
+    @Column("success")
     private Boolean success;
 
-    /** 错误信息 */
-    @Column(name = "error_message", length = 1024)
+    @Column("error_message")
     private String errorMessage;
 
-    /** 远程地址 */
-    @Column(name = "remote_address", length = 128)
+    @Column("remote_address")
     private String remoteAddress;
 
-    /** 创建时间 */
-    @Column(name = "created_at", nullable = false, updatable = false)
+    @Column("created_at")
     private LocalDateTime createdAt;
-
-    @PrePersist
-    protected void onCreate() {
-        createdAt = LocalDateTime.now();
-    }
-
-    // Getters and Setters
 
     public Long getId() {
         return id;

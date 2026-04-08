@@ -3,7 +3,7 @@ package com.lumina.controlplane.service;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.lumina.controlplane.entity.ServiceInstanceEntity;
-import com.lumina.controlplane.repository.ServiceInstanceRepository;
+import com.lumina.controlplane.mapper.ServiceInstanceMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -18,50 +18,42 @@ public class ServiceInstanceService {
 
     private static final Logger logger = LoggerFactory.getLogger(ServiceInstanceService.class);
 
-    private final ServiceInstanceRepository serviceInstanceRepository;
+    private final ServiceInstanceMapper mapper;
     private final ObjectMapper objectMapper;
 
-    public ServiceInstanceService(ServiceInstanceRepository serviceInstanceRepository, ObjectMapper objectMapper) {
-        this.serviceInstanceRepository = serviceInstanceRepository;
+    public ServiceInstanceService(ServiceInstanceMapper mapper, ObjectMapper objectMapper) {
+        this.mapper = mapper;
         this.objectMapper = objectMapper;
     }
 
     public List<ServiceInstanceEntity> findAll() {
-        // 只返回非过期实例，排除心跳超时的僵尸实例
-        return serviceInstanceRepository.findAllNonExpired(LocalDateTime.now());
+        return mapper.findAllNonExpired(LocalDateTime.now());
     }
 
-    /**
-     * 查询所有实例（包括过期的，用于调试/管理）
-     */
     public List<ServiceInstanceEntity> findAllIncludingExpired() {
-        return serviceInstanceRepository.findAll();
+        return mapper.selectAll();
     }
 
     public List<ServiceInstanceEntity> findByServiceName(String serviceName) {
-        return serviceInstanceRepository.findByServiceName(serviceName);
+        return mapper.findByServiceName(serviceName);
     }
 
-    public Optional<ServiceInstanceEntity> findByInstanceId(String instanceId) {
-        return serviceInstanceRepository.findByInstanceId(instanceId);
+    public ServiceInstanceEntity findByInstanceId(String instanceId) {
+        return mapper.findByInstanceId(instanceId);
     }
 
     public List<ServiceInstanceEntity> findHealthyInstances() {
-        return serviceInstanceRepository.findHealthyInstances(LocalDateTime.now());
+        return mapper.findHealthyInstances(LocalDateTime.now());
     }
 
     public long countDistinctHealthyServices() {
-        return serviceInstanceRepository.countDistinctHealthyServices(LocalDateTime.now());
+        return mapper.countDistinctHealthyServices(LocalDateTime.now());
     }
 
     public long countHealthyInstances() {
-        return serviceInstanceRepository.countHealthyInstances(LocalDateTime.now());
+        return mapper.countHealthyInstances(LocalDateTime.now());
     }
 
-    /**
-     * 获取所有服务的元数据（去重）
-     * 用于前端动态渲染下拉框
-     */
     public Map<String, Map<String, Object>> getAllServiceMetadata() {
         List<ServiceInstanceEntity> instances = findHealthyInstances();
         Map<String, Map<String, Object>> result = new LinkedHashMap<>();
@@ -85,20 +77,17 @@ public class ServiceInstanceService {
         return result;
     }
 
-    /**
-     * 根据服务名获取元数据
-     */
     public Map<String, Object> getServiceMetadata(String serviceName) {
-        Optional<ServiceInstanceEntity> instance = serviceInstanceRepository
-                .findByServiceName(serviceName)
-                .stream()
+        List<ServiceInstanceEntity> instances = mapper.findByServiceName(serviceName);
+        ServiceInstanceEntity instance = instances.stream()
                 .filter(i -> "UP".equals(i.getStatus()))
-                .findFirst();
+                .findFirst()
+                .orElse(null);
 
-        if (instance.isPresent() && instance.get().getServiceMetadata() != null) {
+        if (instance != null && instance.getServiceMetadata() != null) {
             try {
                 return objectMapper.readValue(
-                    instance.get().getServiceMetadata(),
+                    instance.getServiceMetadata(),
                     new TypeReference<Map<String, Object>>() {}
                 );
             } catch (Exception e) {
@@ -112,7 +101,6 @@ public class ServiceInstanceService {
     public ServiceInstanceEntity register(ServiceInstanceEntity instance) {
         String instanceId = instance.getInstanceId();
 
-        // 如果没有传 instanceId，根据 serviceName + host + port 生成
         if (instanceId == null || instanceId.isEmpty()) {
             instanceId = instance.getServiceName() + "@" + instance.getHost() + ":" + instance.getPort();
             instance.setInstanceId(instanceId);
@@ -120,62 +108,53 @@ public class ServiceInstanceService {
 
         logger.info("Registering service instance: {} - {}", instance.getServiceName(), instanceId);
 
-        // 幂等更新：先根据 instanceId 查询
-        Optional<ServiceInstanceEntity> existing = serviceInstanceRepository.findByInstanceId(instanceId);
+        ServiceInstanceEntity existing = mapper.findByInstanceId(instanceId);
 
-        if (existing.isPresent()) {
-            // 已存在：更新该记录的状态和元数据
-            ServiceInstanceEntity entity = existing.get();
-            entity.setStatus("UP");
-            entity.setHost(instance.getHost());
-            entity.setPort(instance.getPort());
-            entity.setVersion(instance.getVersion());
-            entity.setMetadata(instance.getMetadata());
-            entity.setServiceMetadata(instance.getServiceMetadata());
-            entity.setLastHeartbeat(LocalDateTime.now());
-            entity.setExpiresAt(LocalDateTime.now().plusSeconds(90)); // 90秒过期
+        if (existing != null) {
+            existing.setStatus("UP");
+            existing.setHost(instance.getHost());
+            existing.setPort(instance.getPort());
+            existing.setVersion(instance.getVersion());
+            existing.setMetadata(instance.getMetadata());
+            existing.setServiceMetadata(instance.getServiceMetadata());
+            existing.setLastHeartbeat(LocalDateTime.now());
+            existing.setExpiresAt(LocalDateTime.now().plusSeconds(90));
 
-            // 预热支持：保留原始 startTime，不因重注册而重置预热进度
-            // 只有当原实例从未设置 startTime 时才使用新值
-            if (entity.getStartTime() == null && instance.getStartTime() != null) {
-                entity.setStartTime(instance.getStartTime());
+            if (existing.getStartTime() == null && instance.getStartTime() != null) {
+                existing.setStartTime(instance.getStartTime());
             }
 
-            // warmupPeriod 可以更新（配置热更新场景）
             if (instance.getWarmupPeriod() != null) {
-                entity.setWarmupPeriod(instance.getWarmupPeriod());
+                existing.setWarmupPeriod(instance.getWarmupPeriod());
             }
 
-            logger.info("✅ Updated existing service instance: {} (idempotent update, warmup={})",
-                    instanceId, entity.isInWarmup() ? "in-progress" : "completed");
-            return serviceInstanceRepository.save(entity);
+            logger.info("✅ Updated existing service instance: {}", instanceId);
+            mapper.update(existing);
+            return existing;
         } else {
-            // 不存在：创建新记录
             instance.setStatus("UP");
             instance.setRegisteredAt(LocalDateTime.now());
             instance.setLastHeartbeat(LocalDateTime.now());
-            instance.setExpiresAt(LocalDateTime.now().plusSeconds(90)); // 90秒过期
+            instance.setExpiresAt(LocalDateTime.now().plusSeconds(90));
 
-            // 如果没有设置 startTime，使用当前时间
             if (instance.getStartTime() == null) {
                 instance.setStartTime(System.currentTimeMillis());
             }
 
-            logger.info("✅ Created new service instance: {} (warmup period: {}ms)",
-                    instanceId, instance.getWarmupPeriod());
-            return serviceInstanceRepository.save(instance);
+            logger.info("✅ Created new service instance: {}", instanceId);
+            mapper.insert(instance);
+            return instance;
         }
     }
 
     @Transactional
     public void heartbeat(String instanceId) {
-        Optional<ServiceInstanceEntity> optional = serviceInstanceRepository.findByInstanceId(instanceId);
-        if (optional.isPresent()) {
-            ServiceInstanceEntity instance = optional.get();
+        ServiceInstanceEntity instance = mapper.findByInstanceId(instanceId);
+        if (instance != null) {
             instance.setLastHeartbeat(LocalDateTime.now());
             instance.setStatus("UP");
-            instance.setExpiresAt(LocalDateTime.now().plusSeconds(90)); // 90秒过期
-            serviceInstanceRepository.save(instance);
+            instance.setExpiresAt(LocalDateTime.now().plusSeconds(90));
+            mapper.update(instance);
             logger.debug("Heartbeat received for instance: {}", instanceId);
         } else {
             logger.warn("Heartbeat received for unknown instance: {}", instanceId);
@@ -184,11 +163,10 @@ public class ServiceInstanceService {
 
     @Transactional
     public void deregister(String instanceId) {
-        Optional<ServiceInstanceEntity> optional = serviceInstanceRepository.findByInstanceId(instanceId);
-        if (optional.isPresent()) {
-            ServiceInstanceEntity instance = optional.get();
+        ServiceInstanceEntity instance = mapper.findByInstanceId(instanceId);
+        if (instance != null) {
             instance.setStatus("DOWN");
-            serviceInstanceRepository.save(instance);
+            mapper.update(instance);
             logger.info("Deregistered service instance: {}", instanceId);
         }
     }
@@ -198,27 +176,24 @@ public class ServiceInstanceService {
         LocalDateTime now = LocalDateTime.now();
 
         // 1. 将心跳超时的实例标记为 DOWN
-        List<ServiceInstanceEntity> expired = serviceInstanceRepository.findExpiredInstances(now);
+        List<ServiceInstanceEntity> expired = mapper.findExpiredInstances(now);
         for (ServiceInstanceEntity instance : expired) {
             instance.setStatus("DOWN");
-            serviceInstanceRepository.save(instance);
+            mapper.update(instance);
             logger.info("Marked expired instance as DOWN: {}", instance.getInstanceId());
         }
 
         // 2. 物理删除：DOWN 状态超过 1 小时的僵尸实例
         LocalDateTime oneHourAgo = now.minusHours(1);
-        List<ServiceInstanceEntity> zombieInstances = serviceInstanceRepository.findByStatus("DOWN");
+        List<ServiceInstanceEntity> zombieInstances = mapper.findByStatus("DOWN");
         for (ServiceInstanceEntity instance : zombieInstances) {
             if (instance.getLastHeartbeat() != null && instance.getLastHeartbeat().isBefore(oneHourAgo)) {
-                serviceInstanceRepository.delete(instance);
+                mapper.deleteById(instance.getId());
                 logger.info("🗑️ Deleted zombie instance (DOWN > 1h): {}", instance.getInstanceId());
             }
         }
     }
 
-    /**
-     * 定时清理任务：每 60 秒执行一次
-     */
     @Scheduled(fixedRate = 60000)
     public void scheduledCleanup() {
         cleanupExpiredInstances();

@@ -1,6 +1,7 @@
 package com.lumina.controlplane;
 
 import com.lumina.controlplane.service.SseBroadcastService;
+import org.mybatis.spring.annotation.MapperScan;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.SpringApplication;
@@ -14,13 +15,11 @@ import java.util.TimeZone;
 
 /**
  * Control Plane 启动类
- * 负责管理 Mock Rule 并通过 SSE 广播变更通知
- *
- * 注意：不再依赖 lumina-rpc-core，只依赖纯净的 lumina-rpc-protocol
  */
 @SpringBootApplication
 @EnableScheduling
 @ComponentScan(basePackages = "com.lumina.controlplane")
+@MapperScan("com.lumina.controlplane.mapper")
 public class ControlPlaneApplication {
 
     private static final Logger logger = LoggerFactory.getLogger(ControlPlaneApplication.class);

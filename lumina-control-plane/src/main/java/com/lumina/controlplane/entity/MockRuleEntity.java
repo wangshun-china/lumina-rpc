@@ -1,91 +1,74 @@
 package com.lumina.controlplane.entity;
 
-import jakarta.persistence.*;
+import com.mybatisflex.annotation.Column;
+import com.mybatisflex.annotation.Id;
+import com.mybatisflex.annotation.KeyType;
+import com.mybatisflex.annotation.Table;
+
 import java.time.LocalDateTime;
 
-@Entity
-@Table(name = "lumina_mock_rule")
+/**
+ * Mock 规则实体
+ */
+@Table("lumina_mock_rule")
 public class MockRuleEntity {
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Id(keyType = KeyType.Auto)
     private Long id;
 
-    @Column(name = "service_name", nullable = false, length = 255)
+    @Column("service_name")
     private String serviceName;
 
-    @Column(name = "method_name", nullable = false, length = 255)
+    @Column("method_name")
     private String methodName;
 
-    @Column(name = "match_type", length = 50)
+    @Column("match_type")
     private String matchType = "exact";
 
-    /**
-     * 条件规则 - JSON 格式（支持多条件列表）
-     * 新格式：[{"index": 0, "value": "USS-1701"}, {"index": 1, "value": "Sector-Alpha"}]
-     * 旧格式：{"argIndex":0, "matchValue":"USS-1701"}
-     * 为空代表无条件触发
-     */
-    @Column(name = "condition_rule", columnDefinition = "TEXT")
+    @Column("condition_rule")
     private String conditionRule;
 
-    /**
-     * Mock 类型
-     * - SHORT_CIRCUIT: 直接阻断，返回 Mock 数据
-     * - TAMPER: 篡改真实数据，将 Mock 数据与真实响应合并
-     */
-    @Column(name = "mock_type", length = 50)
+    @Column("mock_type")
     private String mockType = "SHORT_CIRCUIT";
 
-    @Column(name = "match_condition", length = 1000)
+    @Column("match_condition")
     private String matchCondition;
 
-    @Column(name = "response_type", nullable = false, length = 50)
+    @Column("response_type")
     private String responseType = "success";
 
-    @Column(name = "response_body", nullable = false, columnDefinition = "TEXT")
+    @Column("response_body")
     private String responseBody;
 
-    @Column(name = "response_delay_ms")
+    @Column("response_delay_ms")
     private Integer responseDelayMs = 0;
 
-    @Column(name = "http_status")
+    @Column("http_status")
     private Integer httpStatus = 200;
 
-    @Column(name = "enabled", nullable = false)
+    @Column("enabled")
     private Boolean enabled = true;
 
-    @Column(name = "priority", nullable = false)
+    @Column("priority")
     private Integer priority = 0;
 
-    @Column(name = "description", length = 500)
+    @Column("description")
     private String description;
 
-    @Column(name = "tags", length = 255)
+    @Column("tags")
     private String tags;
 
-    @Column(name = "created_at", nullable = false, updatable = false)
+    @Column("created_at")
     private LocalDateTime createdAt;
 
-    @Column(name = "updated_at", nullable = false)
+    @Column("updated_at")
     private LocalDateTime updatedAt;
 
-    @Column(name = "created_by", length = 100)
+    @Column("created_by")
     private String createdBy;
 
-    @Column(name = "updated_by", length = 100)
+    @Column("updated_by")
     private String updatedBy;
-
-    @PrePersist
-    protected void onCreate() {
-        createdAt = LocalDateTime.now();
-        updatedAt = LocalDateTime.now();
-    }
-
-    @PreUpdate
-    protected void onUpdate() {
-        updatedAt = LocalDateTime.now();
-    }
 
     public Long getId() {
         return id;

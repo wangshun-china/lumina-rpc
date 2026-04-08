@@ -1,7 +1,7 @@
 package com.lumina.controlplane.service;
 
 import com.lumina.controlplane.entity.RequestStatsEntity;
-import com.lumina.controlplane.repository.RequestStatsRepository;
+import com.lumina.controlplane.mapper.RequestStatsMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -14,34 +14,27 @@ import java.util.*;
 
 /**
  * 请求统计服务
- *
- * 收集和聚合 RPC 请求统计数据，所有数据持久化到数据库
  */
 @Service
 public class RequestStatsService {
 
     private static final Logger logger = LoggerFactory.getLogger(RequestStatsService.class);
 
-    private final RequestStatsRepository repository;
+    private final RequestStatsMapper mapper;
 
-    public RequestStatsService(RequestStatsRepository repository) {
-        this.repository = repository;
+    public RequestStatsService(RequestStatsMapper mapper) {
+        this.mapper = mapper;
     }
 
-    /**
-     * 记录聚合统计数据（Consumer 端上报）
-     */
     @Transactional
     public void recordAggregate(String serviceName, long successCount, long failCount, long avgLatency) {
         LocalDateTime now = LocalDateTime.now().truncatedTo(ChronoUnit.MINUTES);
 
-        // 查找当前分钟的记录
-        List<RequestStatsEntity> existing = repository.findByServiceNameAndTimeRange(
+        List<RequestStatsEntity> existing = mapper.findByServiceNameAndTimeRange(
                 serviceName, now, now.plusMinutes(1));
 
         RequestStatsEntity entity;
         if (existing.isEmpty()) {
-            // 创建新记录
             entity = new RequestStatsEntity();
             entity.setServiceName(serviceName);
             entity.setStatTime(now);
@@ -51,8 +44,9 @@ public class RequestStatsService {
             entity.setTotalLatency(avgLatency * (successCount + failCount));
             entity.setMaxLatency(avgLatency);
             entity.setMinLatency(avgLatency > 0 ? avgLatency : 0);
+            entity.setCreatedAt(LocalDateTime.now());
+            mapper.insert(entity);
         } else {
-            // 累加到现有记录
             entity = existing.get(0);
             long totalCount = successCount + failCount;
             entity.setTotalRequests(entity.getTotalRequests() + totalCount);
@@ -68,21 +62,18 @@ public class RequestStatsService {
                     entity.setMinLatency(avgLatency);
                 }
             }
+            mapper.update(entity);
         }
 
-        repository.save(entity);
         logger.debug("Recorded aggregate stats for {}: success={}, fail={}, latency={}ms",
                 serviceName, successCount, failCount, avgLatency);
     }
 
-    /**
-     * 记录单次请求（直接持久化）
-     */
     @Transactional
     public void recordRequest(String serviceName, boolean success, long latencyMs) {
         LocalDateTime now = LocalDateTime.now().truncatedTo(ChronoUnit.MINUTES);
 
-        List<RequestStatsEntity> existing = repository.findByServiceNameAndTimeRange(
+        List<RequestStatsEntity> existing = mapper.findByServiceNameAndTimeRange(
                 serviceName, now, now.plusMinutes(1));
 
         RequestStatsEntity entity;
@@ -96,6 +87,8 @@ public class RequestStatsService {
             entity.setTotalLatency(latencyMs);
             entity.setMaxLatency(latencyMs);
             entity.setMinLatency(latencyMs);
+            entity.setCreatedAt(LocalDateTime.now());
+            mapper.insert(entity);
         } else {
             entity = existing.get(0);
             entity.setTotalRequests(entity.getTotalRequests() + 1);
@@ -112,19 +105,15 @@ public class RequestStatsService {
             if (entity.getMinLatency() == null || entity.getMinLatency() == 0 || latencyMs < entity.getMinLatency()) {
                 entity.setMinLatency(latencyMs);
             }
+            mapper.update(entity);
         }
-
-        repository.save(entity);
     }
 
-    /**
-     * 获取趋势数据（最近N分钟）
-     */
     public List<Map<String, Object>> getTrendData(int minutes) {
         LocalDateTime endTime = LocalDateTime.now().truncatedTo(ChronoUnit.MINUTES);
         LocalDateTime startTime = endTime.minusMinutes(minutes);
 
-        List<Object[]> results = repository.aggregateByTime(startTime, endTime);
+        List<Object[]> results = mapper.aggregateByTime(startTime, endTime);
 
         List<Map<String, Object>> trendData = new ArrayList<>();
         for (Object[] row : results) {
@@ -145,14 +134,11 @@ public class RequestStatsService {
         return trendData;
     }
 
-    /**
-     * 获取服务统计
-     */
     public List<Map<String, Object>> getServiceStats(int minutes) {
         LocalDateTime endTime = LocalDateTime.now().truncatedTo(ChronoUnit.MINUTES);
         LocalDateTime startTime = endTime.minusMinutes(minutes);
 
-        List<Object[]> results = repository.aggregateByService(startTime, endTime);
+        List<Object[]> results = mapper.aggregateByService(startTime, endTime);
 
         List<Map<String, Object>> serviceStats = new ArrayList<>();
         for (Object[] row : results) {
@@ -168,14 +154,11 @@ public class RequestStatsService {
         return serviceStats;
     }
 
-    /**
-     * 获取实时统计（最近5分钟）
-     */
     public Map<String, Object> getRealtimeStats() {
         LocalDateTime endTime = LocalDateTime.now();
         LocalDateTime startTime = endTime.minusMinutes(5);
 
-        List<Object[]> dbResults = repository.aggregateByTime(startTime, endTime);
+        List<Object[]> dbResults = mapper.aggregateByTime(startTime, endTime);
 
         long totalRequests = 0;
         long totalSuccess = 0;
@@ -198,14 +181,11 @@ public class RequestStatsService {
         return result;
     }
 
-    /**
-     * 清理旧数据（保留最近24小时）
-     */
-    @Scheduled(fixedRate = 3600000) // 每小时执行
+    @Scheduled(fixedRate = 3600000)
     @Transactional
     public void cleanupOldData() {
         LocalDateTime cutoff = LocalDateTime.now().minusHours(24);
-        repository.deleteByStatTimeBefore(cutoff);
+        mapper.deleteByStatTimeBefore(cutoff);
         logger.info("Cleaned up request stats before {}", cutoff);
     }
 }

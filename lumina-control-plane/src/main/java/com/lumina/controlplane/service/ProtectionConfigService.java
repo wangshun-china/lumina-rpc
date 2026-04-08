@@ -1,81 +1,73 @@
 package com.lumina.controlplane.service;
 
 import com.lumina.controlplane.entity.ProtectionConfigEntity;
-import com.lumina.controlplane.repository.ProtectionConfigRepository;
+import com.lumina.controlplane.mapper.ProtectionConfigMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * 保护配置服务（简化版，对标 Dubbo）
- *
- * 管理熔断器和限流器的动态配置
- * 移除内存缓存，直接查数据库（配置数量有限，性能足够）
- * 移除版本号机制，SSE 推送已足够可靠
+ * 保护配置服务
  */
 @Service
 public class ProtectionConfigService {
 
     private static final Logger logger = LoggerFactory.getLogger(ProtectionConfigService.class);
 
-    private final ProtectionConfigRepository repository;
+    private final ProtectionConfigMapper mapper;
     private final SseBroadcastService sseBroadcastService;
 
-    public ProtectionConfigService(ProtectionConfigRepository repository,
+    public ProtectionConfigService(ProtectionConfigMapper mapper,
                                    SseBroadcastService sseBroadcastService) {
-        this.repository = repository;
+        this.mapper = mapper;
         this.sseBroadcastService = sseBroadcastService;
-        logger.info("ProtectionConfigService initialized (no cache, direct DB access)");
+        logger.info("ProtectionConfigService initialized");
     }
 
-    /**
-     * 获取所有配置
-     */
     public List<ProtectionConfigEntity> findAll() {
-        return repository.findAll();
+        return mapper.selectAll();
     }
 
-    /**
-     * 根据 serviceName 获取配置
-     */
     public ProtectionConfigEntity findByServiceName(String serviceName) {
-        return repository.findByServiceName(serviceName).orElse(null);
+        return mapper.findByServiceName(serviceName);
     }
 
-    /**
-     * 获取或创建默认配置
-     */
     public ProtectionConfigEntity getOrCreateDefault(String serviceName) {
-        ProtectionConfigEntity config = repository.findByServiceName(serviceName).orElse(null);
+        ProtectionConfigEntity config = mapper.findByServiceName(serviceName);
         if (config == null) {
             config = new ProtectionConfigEntity();
             config.setServiceName(serviceName);
-            config = repository.save(config);
+            LocalDateTime now = LocalDateTime.now();
+            config.setCreatedAt(now);
+            config.setUpdatedAt(now);
+            mapper.insert(config);
             logger.info("Created default protection config for service: {}", serviceName);
         }
         return config;
     }
 
-    /**
-     * 保存配置
-     */
     @Transactional
     public ProtectionConfigEntity save(ProtectionConfigEntity config) {
-        ProtectionConfigEntity saved = repository.save(config);
-        logger.info("Saved protection config for service: {}", saved.getServiceName());
+        if (config.getId() == null) {
+            LocalDateTime now = LocalDateTime.now();
+            config.setCreatedAt(now);
+            config.setUpdatedAt(now);
+            mapper.insert(config);
+        } else {
+            config.setUpdatedAt(LocalDateTime.now());
+            mapper.update(config);
+        }
+        logger.info("Saved protection config for service: {}", config.getServiceName());
 
-        // 广播配置变更事件（SSE实时推送）
-        broadcastConfigChange(saved);
+        broadcastConfigChange(config);
 
-        return saved;
+        return config;
     }
 
-    /**
-     * 广播配置变更事件
-     */
     private void broadcastConfigChange(ProtectionConfigEntity config) {
         try {
             if (sseBroadcastService != null) {
@@ -87,28 +79,12 @@ public class ProtectionConfigService {
         }
     }
 
-    /**
-     * 批量保存配置
-     */
-    @Transactional
-    public List<ProtectionConfigEntity> saveAll(List<ProtectionConfigEntity> configs) {
-        List<ProtectionConfigEntity> saved = repository.saveAll(configs);
-        logger.info("Saved {} protection configs", saved.size());
-        return saved;
-    }
-
-    /**
-     * 删除配置
-     */
     @Transactional
     public void delete(String serviceName) {
-        repository.deleteByServiceName(serviceName);
+        mapper.deleteByServiceName(serviceName);
         logger.info("Deleted protection config for service: {}", serviceName);
     }
 
-    /**
-     * 更新熔断器配置
-     */
     @Transactional
     public ProtectionConfigEntity updateCircuitBreakerConfig(
             String serviceName,
@@ -131,9 +107,6 @@ public class ProtectionConfigService {
         return save(config);
     }
 
-    /**
-     * 更新限流器配置
-     */
     @Transactional
     public ProtectionConfigEntity updateRateLimiterConfig(
             String serviceName,
@@ -152,9 +125,6 @@ public class ProtectionConfigService {
         return save(config);
     }
 
-    /**
-     * 更新集群配置（timeout、retries、clusterStrategy）
-     */
     @Transactional
     public ProtectionConfigEntity updateClusterConfig(
             String serviceName,

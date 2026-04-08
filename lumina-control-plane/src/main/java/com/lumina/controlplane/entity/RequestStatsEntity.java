@@ -1,65 +1,47 @@
 package com.lumina.controlplane.entity;
 
-import jakarta.persistence.*;
+import com.mybatisflex.annotation.Column;
+import com.mybatisflex.annotation.Id;
+import com.mybatisflex.annotation.KeyType;
+import com.mybatisflex.annotation.Table;
+
 import java.time.LocalDateTime;
 
 /**
  * 请求统计实体
- *
- * 按分钟粒度记录请求统计数据
  */
-@Entity
-@Table(name = "lumina_request_stats", indexes = {
-    @Index(name = "idx_service_time", columnList = "service_name, stat_time")
-})
+@Table("lumina_request_stats")
 public class RequestStatsEntity {
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Id(keyType = KeyType.Auto)
     private Long id;
 
-    /** 服务名称 */
-    @Column(name = "service_name", nullable = false, length = 255)
+    @Column("service_name")
     private String serviceName;
 
-    /** 统计时间（分钟粒度） */
-    @Column(name = "stat_time", nullable = false)
+    @Column("stat_time")
     private LocalDateTime statTime;
 
-    /** 总请求数 */
-    @Column(name = "total_requests", nullable = false)
+    @Column("total_requests")
     private Long totalRequests = 0L;
 
-    /** 成功请求数 */
-    @Column(name = "success_count", nullable = false)
+    @Column("success_count")
     private Long successCount = 0L;
 
-    /** 失败请求数 */
-    @Column(name = "fail_count", nullable = false)
+    @Column("fail_count")
     private Long failCount = 0L;
 
-    /** 总响应时间（毫秒） */
-    @Column(name = "total_latency")
+    @Column("total_latency")
     private Long totalLatency = 0L;
 
-    /** 最大响应时间 */
-    @Column(name = "max_latency")
+    @Column("max_latency")
     private Long maxLatency = 0L;
 
-    /** 最小响应时间 */
-    @Column(name = "min_latency")
+    @Column("min_latency")
     private Long minLatency = 0L;
 
-    /** 创建时间 */
-    @Column(name = "created_at", nullable = false, updatable = false)
+    @Column("created_at")
     private LocalDateTime createdAt;
-
-    @PrePersist
-    protected void onCreate() {
-        createdAt = LocalDateTime.now();
-    }
-
-    // Getters and Setters
 
     public Long getId() {
         return id;
@@ -141,9 +123,6 @@ public class RequestStatsEntity {
         this.createdAt = createdAt;
     }
 
-    /**
-     * 计算平均响应时间
-     */
     public Long getAvgLatency() {
         if (totalRequests == null || totalRequests == 0 || totalLatency == null) {
             return 0L;
@@ -151,9 +130,6 @@ public class RequestStatsEntity {
         return totalLatency / totalRequests;
     }
 
-    /**
-     * 计算成功率
-     */
     public Double getSuccessRate() {
         if (totalRequests == null || totalRequests == 0) {
             return 100.0;

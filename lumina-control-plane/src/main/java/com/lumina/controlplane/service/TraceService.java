@@ -5,11 +5,10 @@ import com.lumina.controlplane.dto.TraceDetailDto;
 import com.lumina.controlplane.dto.TraceSummaryDto;
 import com.lumina.controlplane.dto.ServiceStatsDto;
 import com.lumina.controlplane.entity.SpanEntity;
-import com.lumina.controlplane.repository.SpanRepository;
+import com.lumina.controlplane.mapper.SpanMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -28,11 +27,8 @@ public class TraceService {
     private static final Logger logger = LoggerFactory.getLogger(TraceService.class);
 
     @Autowired
-    private SpanRepository spanRepository;
+    private SpanMapper spanMapper;
 
-    /**
-     * 保存 Span
-     */
     @Transactional
     public void saveSpan(SpanDto span) {
         SpanEntity entity = new SpanEntity();
@@ -47,17 +43,15 @@ public class TraceService {
         entity.setSuccess(span.isSuccess());
         entity.setErrorMessage(span.getErrorMessage());
         entity.setRemoteAddress(span.getRemoteAddress());
+        entity.setCreatedAt(LocalDateTime.now());
 
-        spanRepository.save(entity);
+        spanMapper.insert(entity);
 
         logger.debug("Saved span: {} (traceId: {})", span.getSpanId(), span.getTraceId());
     }
 
-    /**
-     * 获取 Trace 详情（包含所有 Span）
-     */
     public TraceDetailDto getTraceDetail(String traceId) {
-        List<SpanEntity> spans = spanRepository.findByTraceIdOrderByStartTimeAsc(traceId);
+        List<SpanEntity> spans = spanMapper.findByTraceIdOrderByStartTimeAsc(traceId);
 
         if (spans.isEmpty()) {
             return null;
@@ -67,7 +61,6 @@ public class TraceService {
         detail.setTraceId(traceId);
         detail.setSpans(spans);
 
-        // 计算统计信息
         long totalDuration = 0;
         int spanCount = spans.size();
         boolean hasError = false;
@@ -88,11 +81,8 @@ public class TraceService {
         return detail;
     }
 
-    /**
-     * 获取最近的 Trace 列表
-     */
     public List<TraceSummaryDto> getRecentTraces(int limit) {
-        List<Object[]> results = spanRepository.findRecentTraceIdsWithTime(PageRequest.of(0, limit));
+        List<Object[]> results = spanMapper.findRecentTraceIdsWithTime(limit);
         List<TraceSummaryDto> summaries = new ArrayList<>();
 
         for (Object[] row : results) {
@@ -108,7 +98,6 @@ public class TraceService {
                 summary.setHasError(detail.isHasError());
                 summary.setStartTime(maxStartTime);
 
-                // 获取第一个 Span 的信息
                 if (!detail.getSpans().isEmpty()) {
                     SpanEntity firstSpan = detail.getSpans().get(0);
                     summary.setServiceName(firstSpan.getServiceName());
@@ -121,13 +110,9 @@ public class TraceService {
         return summaries;
     }
 
-    /**
-     * 获取服务调用统计
-     */
     public List<ServiceStatsDto> getServiceStats(LocalDateTime startTime, LocalDateTime endTime) {
-        List<SpanEntity> spans = spanRepository.findByServiceNameAndTimeRange("", startTime, endTime);
+        List<SpanEntity> spans = spanMapper.findByServiceNameAndTimeRange("", startTime, endTime);
 
-        // 按服务名分组统计
         Map<String, ServiceStatsDto> statsMap = new HashMap<>();
 
         for (SpanEntity span : spans) {

@@ -1,98 +1,66 @@
 package com.lumina.controlplane.entity;
 
-import jakarta.persistence.*;
+import com.mybatisflex.annotation.Column;
+import com.mybatisflex.annotation.Id;
+import com.mybatisflex.annotation.KeyType;
+import com.mybatisflex.annotation.Table;
+
 import java.time.LocalDateTime;
 
 /**
  * 服务保护配置实体
- *
- * 存储熔断器和限流器的动态配置
- * 服务级别粒度，按 Dubbo 做法
  */
-@Entity
-@Table(name = "lumina_protection_config", uniqueConstraints = {
-    @UniqueConstraint(columnNames = {"service_name"})
-})
+@Table("lumina_protection_config")
 public class ProtectionConfigEntity {
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Id(keyType = KeyType.Auto)
     private Long id;
 
-    /** 服务名称（唯一键） */
-    @Column(name = "service_name", nullable = false, length = 255, unique = true)
+    @Column("service_name")
     private String serviceName;
 
-    // ==================== 熔断器配置 ====================
-
-    /** 是否启用熔断器 */
-    @Column(name = "circuit_breaker_enabled", nullable = false)
+    // 熔断器配置
+    @Column("circuit_breaker_enabled")
     private Boolean circuitBreakerEnabled = true;
 
-    /** 熔断器错误率阈值（百分比） */
-    @Column(name = "circuit_breaker_threshold")
+    @Column("circuit_breaker_threshold")
     private Integer circuitBreakerThreshold = 50;
 
-    /** 熔断器恢复时间（毫秒） */
-    @Column(name = "circuit_breaker_timeout")
+    @Column("circuit_breaker_timeout")
     private Long circuitBreakerTimeout = 30000L;
 
-    /** 滑动窗口大小 */
-    @Column(name = "circuit_breaker_window_size")
+    @Column("circuit_breaker_window_size")
     private Integer circuitBreakerWindowSize = 100;
 
-    // ==================== 限流器配置 ====================
-
-    /** 是否启用限流器 */
-    @Column(name = "rate_limiter_enabled", nullable = false)
+    // 限流器配置
+    @Column("rate_limiter_enabled")
     private Boolean rateLimiterEnabled = false;
 
-    /** 限流阈值（每秒请求数） */
-    @Column(name = "rate_limiter_permits")
+    @Column("rate_limiter_permits")
     private Integer rateLimiterPermits = 100;
 
-    // ==================== 集群配置 ====================
-
-    /** 默认集群策略 */
-    @Column(name = "cluster_strategy", length = 50)
+    // 集群配置
+    @Column("cluster_strategy")
     private String clusterStrategy = "failover";
 
-    /** 重试次数 */
-    @Column(name = "retries")
+    @Column("retries")
     private Integer retries = 3;
 
-    /** 超时时间（毫秒），0 表示使用 Consumer 端默认值 */
-    @Column(name = "timeout_ms")
+    @Column("timeout_ms")
     private Long timeoutMs = 0L;
 
-    // ==================== 元数据 ====================
-
-    /** 配置版本号（用于乐观锁） */
-    @Column(name = "version")
+    // 元数据
+    @Column("version")
     private Long version = 1L;
 
-    @Column(name = "created_at", nullable = false, updatable = false)
+    @Column("created_at")
     private LocalDateTime createdAt;
 
-    @Column(name = "updated_at", nullable = false)
+    @Column("updated_at")
     private LocalDateTime updatedAt;
 
-    @Column(name = "description", length = 500)
+    @Column("description")
     private String description;
-
-    @PrePersist
-    protected void onCreate() {
-        createdAt = LocalDateTime.now();
-        updatedAt = LocalDateTime.now();
-    }
-
-    @PreUpdate
-    protected void onUpdate() {
-        updatedAt = LocalDateTime.now();
-        version++;
-    }
-
-    // Getters and Setters
 
     public Long getId() {
         return id;
