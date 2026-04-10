@@ -2,7 +2,6 @@ package com.lumina.rpc.protocol.transport;
 
 import com.lumina.rpc.protocol.codec.RpcDecoder;
 import com.lumina.rpc.protocol.codec.RpcEncoder;
-import com.lumina.rpc.protocol.RpcMessage;
 import com.lumina.rpc.protocol.pool.ChannelPoolManager;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.channel.*;
@@ -14,7 +13,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.InetSocketAddress;
-import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -27,9 +25,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *
  * 防御性编程特性：
  * 1. 断线自动重连：Channel 失效时自动剔除并重连
- * 2. 优雅停机：提供 shutdown() 方法供外部调用
- * 3. 连接健康检查：获取连接时验证 isActive() 状态
- * 4. 连接池集成：通过 ChannelPoolManager 实现真正的连接复用
+ * 2. 连接健康检查：获取连接时验证 isActive() 状态
+ * 3. 连接池集成：通过 ChannelPoolManager 实现真正的连接复用
  *
  * 注意：此类不依赖任何 Spring 组件，可独立使用
  */
@@ -228,141 +225,6 @@ public class NettyClient implements ChannelPoolManager.ChannelFactory {
         }
     }
 
-    /**
-     * 发送 RPC 消息
-     *
-     * 防御性编程：发送前检查 Channel 健康状态
-     *
-     * @param address  服务器地址
-     * @param message RPC 消息
-     */
-    public void sendMessage(InetSocketAddress address, RpcMessage message) {
-        if (shutdown.get()) {
-            throw new IllegalStateException("NettyClient is shutting down");
-        }
-
-        Channel channel = getOrConnect(address);
-        if (channel == null || !channel.isActive()) {
-            // 尝试重新连接
-            String addressKey = address.getHostString() + ":" + address.getPort();
-            logger.warn("⚠️ Channel inactive for {}, attempting reconnect...", addressKey);
-
-            // 移除失效连接
-            channelPool.remove(addressKey);
-
-            // 重新连接
-            channel = connectWithRetry(address);
-            if (channel == null || !channel.isActive()) {
-                throw new IllegalStateException("Failed to establish connection to RPC server: " + address);
-            }
-        }
-
-        channel.writeAndFlush(message).addListener(future -> {
-            if (!future.isSuccess()) {
-                logger.error("Failed to send RPC message to {}", address, future.cause());
-            }
-        });
-    }
-
-    /**
-     * 发送 RPC 消息（通过已有 Channel）
-     *
-     * @param channel Channel
-     * @param message RPC 消息
-     */
-    public void sendMessage(Channel channel, RpcMessage message) {
-        if (channel == null || !channel.isActive()) {
-            throw new IllegalStateException("Channel is not active");
-        }
-
-        channel.writeAndFlush(message).addListener(future -> {
-            if (!future.isSuccess()) {
-                logger.error("Failed to send RPC message", future.cause());
-            }
-        });
-    }
-
-    /**
-     * 检查是否已连接到指定地址
-     *
-     * @param address 地址
-     * @return 是否已连接
-     */
-    public boolean isConnected(InetSocketAddress address) {
-        String addressKey = address.getHostString() + ":" + address.getPort();
-        Channel channel = channelPool.get(addressKey);
-        return channel != null && channel.isActive();
-    }
-
-    /**
-     * 关闭指定连接
-     *
-     * @param address 服务器地址
-     */
-    public void close(InetSocketAddress address) {
-        String addressKey = address.getHostString() + ":" + address.getPort();
-        Channel channel = channelPool.remove(addressKey);
-        if (channel != null) {
-            channel.close();
-        }
-        connectionStatus.remove(addressKey);
-    }
-
-    /**
-     * 关闭所有连接（优雅停机）
-     *
-     * 供外部手动调用，不依赖 Spring 生命周期
-     */
-    public void shutdown() {
-        // 防止重复关闭
-        if (!shutdown.compareAndSet(false, true)) {
-            logger.info("NettyClient already shut down");
-            return;
-        }
-
-        logger.info("🛑 [Graceful Shutdown] Shutting down NettyClient...");
-
-        // 1. 关闭所有活跃的 Channel
-        int closedChannels = 0;
-        for (Map.Entry<String, Channel> entry : channelPool.entrySet()) {
-            try {
-                Channel channel = entry.getValue();
-                if (channel != null && channel.isActive()) {
-                    channel.close().await(5, TimeUnit.SECONDS);
-                    closedChannels++;
-                }
-            } catch (Exception e) {
-                logger.warn("Error closing channel: {}", entry.getKey(), e);
-            }
-        }
-        logger.info("📡 [Graceful Shutdown] Closed {} channels", closedChannels);
-
-        // 2. 清空连接池
-        channelPool.clear();
-        connectionStatus.clear();
-
-        // 3. 优雅关闭 EventLoopGroup
-        if (eventLoopGroup != null && !eventLoopGroup.isShutdown()) {
-            try {
-                eventLoopGroup.shutdownGracefully(100, 300, TimeUnit.MILLISECONDS).await();
-                logger.info("⚡ [Graceful Shutdown] EventLoopGroup terminated");
-            } catch (Exception e) {
-                logger.warn("Error during EventLoopGroup shutdown", e);
-            }
-        }
-
-        logger.info("✅ [Graceful Shutdown] NettyClient shutdown complete");
-    }
-
-    /**
-     * 获取连接池大小
-     *
-     * @return 连接数
-     */
-    public int getConnectionPoolSize() {
-        return channelPool.size();
-    }
-
     // ==================== ChannelFactory 接口实现 ====================
 
     /**
@@ -410,10 +272,4 @@ public class NettyClient implements ChannelPoolManager.ChannelFactory {
         }
     }
 
-    /**
-     * 获取 EventLoopGroup（供外部使用）
-     */
-    public EventLoopGroup getEventLoopGroup() {
-        return eventLoopGroup;
     }
-}
