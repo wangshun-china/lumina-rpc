@@ -194,17 +194,4 @@ public class RpcInvoker {
         return responseFuture;
     }
 
-    /**
-     * 获取连接池状态
-     */
-    public static String getPoolStatus() {
-        return ChannelPoolManager.getInstance().getAllPoolStatus();
     }
-
-    /**
-     * 获取全局连接数
-     */
-    public static int getGlobalChannelCount() {
-        return ChannelPoolManager.getInstance().getGlobalChannelCount();
-    }
-}

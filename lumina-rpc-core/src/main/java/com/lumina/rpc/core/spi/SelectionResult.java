@@ -44,13 +44,4 @@ public class SelectionResult {
     public Runnable getOnComplete() {
         return onComplete;
     }
-
-    /**
-     * 执行完成回调
-     */
-    public void complete() {
-        if (onComplete != null) {
-            onComplete.run();
-        }
-    }
 }

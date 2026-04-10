@@ -90,17 +90,6 @@ public class ServiceInstance {
         return Math.min(100, Math.max(0, progress));
     }
 
-    /**
-     * 获取剩余预热时间（毫秒）
-     */
-    public long getRemainingWarmupTime() {
-        if (warmupPeriod <= 0) {
-            return 0;
-        }
-        long remaining = warmupPeriod - (System.currentTimeMillis() - startTime);
-        return Math.max(0, remaining);
-    }
-
     // Getters and Setters
 
     public String getServiceName() {

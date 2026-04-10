@@ -126,45 +126,10 @@ public class ChannelPool {
     }
 
     /**
-     * 获取当前活跃连接数
-     */
-    public int getActiveCount() {
-        return activeCount.get();
-    }
-
-    /**
-     * 获取空闲连接数
-     */
-    public int getIdleCount() {
-        return idleChannels.size();
-    }
-
-    /**
-     * 获取总连接数
-     */
-    public int getTotalCount() {
-        return activeCount.get() + idleChannels.size();
-    }
-
-    /**
-     * 检查是否需要扩容
-     */
-    public boolean needExpand() {
-        return getTotalCount() < maxChannels && idleChannels.isEmpty();
-    }
-
-    /**
      * 检查是否可以创建新连接
      */
     public boolean canCreate() {
-        return getTotalCount() < maxChannels;
-    }
-
-    /**
-     * 获取地址
-     */
-    public InetSocketAddress getAddress() {
-        return address;
+        return (activeCount.get() + idleChannels.size()) < maxChannels;
     }
 
     /**
@@ -172,26 +137,6 @@ public class ChannelPool {
      */
     public String getAddressKey() {
         return addressKey;
-    }
-
-    /**
-     * 关闭所有连接
-     */
-    public void closeAll() {
-        Channel channel;
-        int closed = 0;
-        while ((channel = idleChannels.poll()) != null) {
-            try {
-                if (channel.isActive()) {
-                    channel.close();
-                    closed++;
-                }
-            } catch (Exception e) {
-                logger.warn("Error closing channel for {}", addressKey, e);
-            }
-        }
-        activeCount.set(0);
-        logger.info("🛑 Closed {} channels for {}", closed, addressKey);
     }
 
     @Override

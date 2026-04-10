@@ -121,16 +121,8 @@ public class ClusterInvocation {
         return serviceName;
     }
 
-    public String getVersion() {
-        return version;
-    }
-
     public RpcRequest getRequest() {
         return request;
-    }
-
-    public Class<?> getReturnType() {
-        return returnType;
     }
 
     public List<ServiceInstance> getInstances() {

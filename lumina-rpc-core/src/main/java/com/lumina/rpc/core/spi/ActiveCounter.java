@@ -57,11 +57,4 @@ public class ActiveCounter {
         AtomicInteger counter = activeCounts.get(address);
         return counter == null ? 0 : counter.get();
     }
-
-    /**
-     * 清理所有计数器
-     */
-    public void clear() {
-        activeCounts.clear();
-    }
 }

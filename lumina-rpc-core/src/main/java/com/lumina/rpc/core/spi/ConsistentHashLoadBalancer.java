@@ -83,23 +83,6 @@ public class ConsistentHashLoadBalancer implements LoadBalancer {
     }
 
     /**
-     * 根据指定的 key 选择实例（带排除列表）
-     *
-     * @param instances   服务实例列表
-     * @param excluded    排除的地址
-     * @param serviceName 服务名
-     * @param key         哈希 key
-     * @return 选中的地址
-     */
-    public SelectionResult selectWithKey(
-            List<ServiceInstance> instances,
-            List<InetSocketAddress> excluded,
-            String serviceName,
-            String key) {
-        return selectWithExclusion(instances, excluded, serviceName, key);
-    }
-
-    /**
      * 获取或创建哈希环
      */
     private ConsistentHashRing getOrCreateRing(List<ServiceInstance> instances, String serviceName) {

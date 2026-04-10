@@ -23,9 +23,6 @@ public class RateLimiterManager {
     /** 服务限流器映射 */
     private final ConcurrentHashMap<String, RateLimiter> rateLimiters = new ConcurrentHashMap<>();
 
-    /** 默认每秒许可数 */
-    private int defaultPermitsPerSecond = 100;
-
     private RateLimiterManager() {
     }
 
@@ -44,17 +41,6 @@ public class RateLimiterManager {
     }
 
     /**
-     * 获取或创建限流器
-     *
-     * @param serviceName 服务名称
-     * @return 限流器
-     */
-    public RateLimiter getRateLimiter(String serviceName) {
-        return rateLimiters.computeIfAbsent(serviceName,
-                name -> new RateLimiter(name, defaultPermitsPerSecond));
-    }
-
-    /**
      * 获取或创建限流器（自定义阈值）
      *
      * @param serviceName 服务名称
@@ -64,17 +50,6 @@ public class RateLimiterManager {
     public RateLimiter getRateLimiter(String serviceName, int permitsPerSecond) {
         return rateLimiters.computeIfAbsent(serviceName,
                 name -> new RateLimiter(name, permitsPerSecond));
-    }
-
-    /**
-     * 尝试获取许可
-     *
-     * @param serviceName 服务名称
-     * @return true 表示允许，false 表示被限流
-     */
-    public boolean tryAcquire(String serviceName) {
-        RateLimiter limiter = getRateLimiter(serviceName);
-        return limiter.tryAcquire();
     }
 
     /**
@@ -116,25 +91,6 @@ public class RateLimiterManager {
     }
 
     /**
-     * 设置默认许可数
-     */
-    public void setDefaultPermitsPerSecond(int permits) {
-        this.defaultPermitsPerSecond = permits;
-        logger.info("RateLimiter default permits updated: {}/s", permits);
-    }
-
-    /**
-     * 获取所有限流器状态
-     */
-    public String getAllStats() {
-        StringBuilder sb = new StringBuilder("RateLimiter Stats:\n");
-        rateLimiters.forEach((name, limiter) -> {
-            sb.append("  ").append(limiter.getStats()).append("\n");
-        });
-        return sb.toString();
-    }
-
-    /**
      * 重置指定服务的限流器
      */
     public void reset(String serviceName) {
@@ -146,33 +102,9 @@ public class RateLimiterManager {
     }
 
     /**
-     * 重置所有限流器
-     */
-    public void resetAll() {
-        rateLimiters.values().forEach(RateLimiter::reset);
-        logger.info("All RateLimiters reset");
-    }
-
-    /**
      * 获取所有限流器
      */
     public ConcurrentHashMap<String, RateLimiter> getAllRateLimiters() {
         return rateLimiters;
-    }
-
-    /**
-     * 获取服务的通过数
-     */
-    public long getPassedCount(String serviceName) {
-        RateLimiter limiter = rateLimiters.get(serviceName);
-        return limiter != null ? limiter.getPassedCount() : 0;
-    }
-
-    /**
-     * 获取服务的拒绝数
-     */
-    public long getRejectedCount(String serviceName) {
-        RateLimiter limiter = rateLimiters.get(serviceName);
-        return limiter != null ? limiter.getRejectedCount() : 0;
     }
 }

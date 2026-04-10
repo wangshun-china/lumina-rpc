@@ -66,13 +66,6 @@ public class TraceContext {
     }
 
     /**
-     * 检查是否存在 Trace ID
-     */
-    public static boolean hasTraceId() {
-        return TRACE_ID.get() != null;
-    }
-
-    /**
      * 生成下一个 Span ID
      */
     public static String nextSpanId() {
