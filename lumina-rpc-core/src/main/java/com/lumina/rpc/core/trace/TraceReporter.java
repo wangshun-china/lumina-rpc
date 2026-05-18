@@ -88,7 +88,7 @@ public class TraceReporter {
             try {
                 doReport(span);
             } catch (Exception e) {
-                logger.debug("Failed to report span: {}", e.getMessage());
+                logger.warn("Failed to report span {} to control plane: {}", span.getSpanId(), e.getMessage());
             }
         });
     }
@@ -111,7 +111,8 @@ public class TraceReporter {
         if (response.statusCode() >= 200 && response.statusCode() < 300) {
             logger.debug("Reported span: {} (status: {})", span.getSpanId(), response.statusCode());
         } else {
-            logger.debug("Failed to report span: {} (status: {})", span.getSpanId(), response.statusCode());
+            logger.warn("Failed to report span: {} (status: {}, body: {})",
+                    span.getSpanId(), response.statusCode(), response.body());
         }
     }
 

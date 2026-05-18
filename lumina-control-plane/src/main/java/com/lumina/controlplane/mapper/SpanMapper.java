@@ -7,6 +7,7 @@ import org.apache.ibatis.annotations.Select;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Span 链路追踪 Mapper
@@ -14,7 +15,7 @@ import java.util.List;
 public interface SpanMapper extends BaseMapper<SpanEntity> {
 
     @Select("SELECT trace_id, MAX(start_time) as max_time FROM lumina_span GROUP BY trace_id ORDER BY max_time DESC LIMIT #{limit}")
-    List<Object[]> findRecentTraceIdsWithTime(@Param("limit") int limit);
+    List<Map<String, Object>> findRecentTraceIdsWithTime(@Param("limit") int limit);
 
     @Select("SELECT * FROM lumina_span WHERE trace_id = #{traceId} ORDER BY start_time ASC")
     List<SpanEntity> findByTraceIdOrderByStartTimeAsc(@Param("traceId") String traceId);
@@ -29,7 +30,7 @@ public interface SpanMapper extends BaseMapper<SpanEntity> {
     @Select("SELECT DISTINCT trace_id, MIN(start_time) as first_time FROM lumina_span " +
             "WHERE created_at >= #{startTime} AND created_at <= #{endTime} " +
             "GROUP BY trace_id ORDER BY first_time DESC")
-    List<Object[]> findDistinctTraceIdsByTimeRange(
+    List<Map<String, Object>> findDistinctTraceIdsByTimeRange(
             @Param("startTime") LocalDateTime startTime,
             @Param("endTime") LocalDateTime endTime);
 

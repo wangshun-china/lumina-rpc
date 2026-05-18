@@ -8,7 +8,9 @@ import com.lumina.rpc.core.exception.CircuitBreakerException;
 import com.lumina.rpc.core.exception.RateLimitException;
 import com.lumina.rpc.core.protection.ProtectionConfig;
 import com.lumina.rpc.core.spi.SelectionResult;
+import com.lumina.rpc.core.trace.SpanCollector;
 import com.lumina.rpc.protocol.RpcResponse;
+import com.lumina.rpc.protocol.trace.Span;
 import com.lumina.rpc.protocol.trace.TraceContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -42,95 +44,105 @@ public class FailfastCluster implements Cluster {
     @Override
     public Object invoke(ClusterInvocation invocation) throws Throwable {
         String serviceName = invocation.getServiceName();
+        String methodName = invocation.getRequest().getMethodName();
         String traceId = TraceContext.getTraceId();
-
-        // ========== 获取动态配置 ==========
-        ProtectionConfig config = getProtectionConfig(serviceName);
-        boolean enableCircuitBreaker = config != null ? config.isCircuitBreakerEnabled() : invocation.isEnableCircuitBreaker();
-        boolean enableRateLimit = config != null ? config.isRateLimiterEnabled() : invocation.isEnableRateLimit();
-        int circuitBreakerThreshold = config != null ? config.getCircuitBreakerThreshold() : invocation.getCircuitBreakerThreshold();
-        long circuitBreakerTimeout = config != null ? config.getCircuitBreakerTimeout() : invocation.getCircuitBreakerTimeout();
-        int rateLimitPermits = config != null ? config.getRateLimiterPermits() : invocation.getRateLimitPermits();
-
-        // ========== 1. 限流检查 ==========
-        if (enableRateLimit) {
-            RateLimiterManager limiterManager = RateLimiterManager.getInstance();
-            if (!limiterManager.tryAcquire(serviceName, rateLimitPermits)) {
-                logger.warn("[Trace:{}] [Failfast] Rate limit exceeded for: {} (limit: {}/s)",
-                        traceId, serviceName, rateLimitPermits);
-                throw new RateLimitException(serviceName, rateLimitPermits);
-            }
-        }
-
-        // ========== 2. 熔断检查 ==========
-        CircuitBreaker circuitBreaker = null;
-        if (enableCircuitBreaker) {
-            CircuitBreakerManager cbManager = CircuitBreakerManager.getInstance();
-            circuitBreaker = cbManager.getCircuitBreaker(serviceName, 100,
-                    circuitBreakerThreshold, circuitBreakerTimeout, 5);
-
-            if (!circuitBreaker.allowRequest()) {
-                logger.warn("[Trace:{}] [Failfast] Circuit breaker is OPEN for: {}", traceId, serviceName);
-                throw new CircuitBreakerException(serviceName);
-            }
-        }
-
-        // ========== 3. 选择节点（负载均衡器内部处理状态管理） ==========
-        SelectionResult selection = invocation.getLoadBalancer().selectWithExclusion(
-                invocation.getInstances(),
-                Collections.emptyList(),
-                serviceName,
-                null
-        );
-
-        if (selection == null || selection.getAddress() == null) {
-            if (circuitBreaker != null) {
-                circuitBreaker.recordFailure();
-            }
-            throw new RuntimeException("No available server for: " + serviceName);
-        }
-
-        InetSocketAddress address = selection.getAddress();
-        Runnable onCompleteCallback = selection.getOnComplete();
-
-        logger.debug("[Trace:{}] [Failfast] Invoking {} at {}", traceId, serviceName, address);
+        Span span = SpanCollector.getInstance().startClientSpan(serviceName, methodName, null);
+        span.addTag("cluster", "failfast");
 
         try {
-            RpcResponse response = RpcInvoker.invoke(
-                    address,
-                    invocation.getRequest(),
-                    invocation.getNettyClient(),
-                    invocation.getTimeout()
-            );
+            // ========== 获取动态配置 ==========
+            ProtectionConfig config = getProtectionConfig(serviceName);
+            boolean enableCircuitBreaker = config != null ? config.isCircuitBreakerEnabled() : invocation.isEnableCircuitBreaker();
+            boolean enableRateLimit = config != null ? config.isRateLimiterEnabled() : invocation.isEnableRateLimit();
+            int circuitBreakerThreshold = config != null ? config.getCircuitBreakerThreshold() : invocation.getCircuitBreakerThreshold();
+            long circuitBreakerTimeout = config != null ? config.getCircuitBreakerTimeout() : invocation.getCircuitBreakerTimeout();
+            int rateLimitPermits = config != null ? config.getRateLimiterPermits() : invocation.getRateLimitPermits();
 
-            // 执行完成回调
-            if (onCompleteCallback != null) {
-                onCompleteCallback.run();
+            // ========== 1. 限流检查 ==========
+            if (enableRateLimit) {
+                RateLimiterManager limiterManager = RateLimiterManager.getInstance();
+                if (!limiterManager.tryAcquire(serviceName, rateLimitPermits)) {
+                    logger.warn("[Trace:{}] [Failfast] Rate limit exceeded for: {} (limit: {}/s)",
+                            traceId, serviceName, rateLimitPermits);
+                    throw new RateLimitException(serviceName, rateLimitPermits);
+                }
             }
 
-            if (response.isSuccess()) {
-                if (circuitBreaker != null) {
-                    circuitBreaker.recordSuccess();
+            // ========== 2. 熔断检查 ==========
+            CircuitBreaker circuitBreaker = null;
+            if (enableCircuitBreaker) {
+                CircuitBreakerManager cbManager = CircuitBreakerManager.getInstance();
+                circuitBreaker = cbManager.getCircuitBreaker(serviceName, 100,
+                        circuitBreakerThreshold, circuitBreakerTimeout, 5);
+
+                if (!circuitBreaker.allowRequest()) {
+                    logger.warn("[Trace:{}] [Failfast] Circuit breaker is OPEN for: {}", traceId, serviceName);
+                    throw new CircuitBreakerException(serviceName);
                 }
-                return response.getData();
-            } else {
+            }
+
+            // ========== 3. 选择节点（负载均衡器内部处理状态管理） ==========
+            SelectionResult selection = invocation.getLoadBalancer().selectWithExclusion(
+                    invocation.getInstances(),
+                    Collections.emptyList(),
+                    serviceName,
+                    null
+            );
+
+            if (selection == null || selection.getAddress() == null) {
                 if (circuitBreaker != null) {
                     circuitBreaker.recordFailure();
                 }
-                throw new RuntimeException("RPC call failed: " + response.getMessage());
+                throw new RuntimeException("No available server for: " + serviceName);
             }
 
+            InetSocketAddress address = selection.getAddress();
+            Runnable onCompleteCallback = selection.getOnComplete();
+            span.setRemoteAddress(address.getHostString() + ":" + address.getPort());
+
+            logger.debug("[Trace:{}] [Failfast] Invoking {} at {}", traceId, serviceName, address);
+
+            try {
+                RpcResponse response = RpcInvoker.invoke(
+                        address,
+                        invocation.getRequest(),
+                        invocation.getNettyClient(),
+                        invocation.getTimeout()
+                );
+
+                // 执行完成回调
+                if (onCompleteCallback != null) {
+                    onCompleteCallback.run();
+                }
+
+                if (response.isSuccess()) {
+                    if (circuitBreaker != null) {
+                        circuitBreaker.recordSuccess();
+                    }
+                    SpanCollector.getInstance().endSpan(span);
+                    return response.getData();
+                } else {
+                    if (circuitBreaker != null) {
+                        circuitBreaker.recordFailure();
+                    }
+                    throw new RuntimeException("RPC call failed: " + response.getMessage());
+                }
+
+            } catch (Throwable e) {
+                // 执行完成回调（即使失败也要清理状态）
+                if (onCompleteCallback != null) {
+                    onCompleteCallback.run();
+                }
+
+                if (circuitBreaker != null) {
+                    circuitBreaker.recordFailure();
+                }
+                logger.error("[Trace:{}] [Failfast] Fast fail for {} at {}: {}",
+                        traceId, serviceName, address, e.getMessage());
+                throw e;
+            }
         } catch (Throwable e) {
-            // 执行完成回调（即使失败也要清理状态）
-            if (onCompleteCallback != null) {
-                onCompleteCallback.run();
-            }
-
-            if (circuitBreaker != null) {
-                circuitBreaker.recordFailure();
-            }
-            logger.error("[Trace:{}] [Failfast] Fast fail for {} at {}: {}",
-                    traceId, serviceName, address, e.getMessage());
+            SpanCollector.getInstance().endSpanWithError(span, e.getMessage());
             throw e;
         }
     }

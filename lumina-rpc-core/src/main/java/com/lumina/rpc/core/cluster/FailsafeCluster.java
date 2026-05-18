@@ -6,7 +6,9 @@ import com.lumina.rpc.core.circuitbreaker.RateLimiterManager;
 import com.lumina.rpc.core.client.ControlPlaneClient;
 import com.lumina.rpc.core.protection.ProtectionConfig;
 import com.lumina.rpc.core.spi.SelectionResult;
+import com.lumina.rpc.core.trace.SpanCollector;
 import com.lumina.rpc.protocol.RpcResponse;
+import com.lumina.rpc.protocol.trace.Span;
 import com.lumina.rpc.protocol.trace.TraceContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -40,21 +42,26 @@ public class FailsafeCluster implements Cluster {
     @Override
     public Object invoke(ClusterInvocation invocation) throws Throwable {
         String serviceName = invocation.getServiceName();
+        String methodName = invocation.getRequest().getMethodName();
         String traceId = TraceContext.getTraceId();
+        Span span = SpanCollector.getInstance().startClientSpan(serviceName, methodName, null);
+        span.addTag("cluster", "failsafe");
 
-        // ========== 获取动态配置 ==========
-        ProtectionConfig config = getProtectionConfig(serviceName);
-        boolean enableCircuitBreaker = config != null ? config.isCircuitBreakerEnabled() : invocation.isEnableCircuitBreaker();
-        boolean enableRateLimit = config != null ? config.isRateLimiterEnabled() : invocation.isEnableRateLimit();
-        int circuitBreakerThreshold = config != null ? config.getCircuitBreakerThreshold() : invocation.getCircuitBreakerThreshold();
-        long circuitBreakerTimeout = config != null ? config.getCircuitBreakerTimeout() : invocation.getCircuitBreakerTimeout();
-        int rateLimitPermits = config != null ? config.getRateLimiterPermits() : invocation.getRateLimitPermits();
+        try {
+            // ========== 获取动态配置 ==========
+            ProtectionConfig config = getProtectionConfig(serviceName);
+            boolean enableCircuitBreaker = config != null ? config.isCircuitBreakerEnabled() : invocation.isEnableCircuitBreaker();
+            boolean enableRateLimit = config != null ? config.isRateLimiterEnabled() : invocation.isEnableRateLimit();
+            int circuitBreakerThreshold = config != null ? config.getCircuitBreakerThreshold() : invocation.getCircuitBreakerThreshold();
+            long circuitBreakerTimeout = config != null ? config.getCircuitBreakerTimeout() : invocation.getCircuitBreakerTimeout();
+            int rateLimitPermits = config != null ? config.getRateLimiterPermits() : invocation.getRateLimitPermits();
 
         // ========== 1. 限流检查（Failsafe 模式下被限流也返回 null） ==========
         if (enableRateLimit) {
             RateLimiterManager limiterManager = RateLimiterManager.getInstance();
             if (!limiterManager.tryAcquire(serviceName, rateLimitPermits)) {
                 logger.warn("[Trace:{}] [Failsafe] Rate limit exceeded for: {}, returning null", traceId, serviceName);
+                SpanCollector.getInstance().endSpanWithError(span, "Rate limit exceeded");
                 return null;
             }
         }
@@ -68,6 +75,7 @@ public class FailsafeCluster implements Cluster {
 
             if (!circuitBreaker.allowRequest()) {
                 logger.warn("[Trace:{}] [Failsafe] Circuit breaker is OPEN for: {}, returning null", traceId, serviceName);
+                SpanCollector.getInstance().endSpanWithError(span, "Circuit breaker open");
                 return null;
             }
         }
@@ -82,11 +90,13 @@ public class FailsafeCluster implements Cluster {
 
         if (selection == null || selection.getAddress() == null) {
             logger.warn("[Trace:{}] [Failsafe] No available server for {}, returning null", traceId, serviceName);
+            SpanCollector.getInstance().endSpanWithError(span, "No available server");
             return null;
         }
 
         InetSocketAddress address = selection.getAddress();
         Runnable onCompleteCallback = selection.getOnComplete();
+        span.setRemoteAddress(address.getHostString() + ":" + address.getPort());
 
         logger.debug("[Trace:{}] [Failsafe] Invoking {} at {}", traceId, serviceName, address);
 
@@ -107,6 +117,7 @@ public class FailsafeCluster implements Cluster {
                 if (circuitBreaker != null) {
                     circuitBreaker.recordSuccess();
                 }
+                SpanCollector.getInstance().endSpan(span);
                 return response.getData();
             } else {
                 if (circuitBreaker != null) {
@@ -114,6 +125,7 @@ public class FailsafeCluster implements Cluster {
                 }
                 logger.warn("[Trace:{}] [Failsafe] RPC call failed for {}: {}, returning null",
                         traceId, serviceName, response.getMessage());
+                SpanCollector.getInstance().endSpanWithError(span, response.getMessage());
                 return null;
             }
 
@@ -128,6 +140,11 @@ public class FailsafeCluster implements Cluster {
             }
             logger.warn("[Trace:{}] [Failsafe] Exception ignored for {} at {}: {}, returning null",
                     traceId, serviceName, address, e.getMessage());
+            SpanCollector.getInstance().endSpanWithError(span, e.getMessage());
+            return null;
+        }
+        } catch (Throwable e) {
+            SpanCollector.getInstance().endSpanWithError(span, e.getMessage());
             return null;
         }
     }

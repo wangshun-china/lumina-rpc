@@ -82,12 +82,15 @@ public class TraceService {
     }
 
     public List<TraceSummaryDto> getRecentTraces(int limit) {
-        List<Object[]> results = spanMapper.findRecentTraceIdsWithTime(limit);
+        List<Map<String, Object>> results = spanMapper.findRecentTraceIdsWithTime(limit);
         List<TraceSummaryDto> summaries = new ArrayList<>();
 
-        for (Object[] row : results) {
-            String traceId = (String) row[0];
-            Long maxStartTime = row[1] != null ? ((Number) row[1]).longValue() : 0L;
+        for (Map<String, Object> row : results) {
+            String traceId = asString(row, "trace_id", "traceId");
+            Long maxStartTime = asLong(row, "max_time", "maxTime");
+            if (traceId == null || traceId.isBlank()) {
+                continue;
+            }
 
             TraceDetailDto detail = getTraceDetail(traceId);
             if (detail != null) {
@@ -108,6 +111,32 @@ public class TraceService {
         }
 
         return summaries;
+    }
+
+    private String asString(Map<String, Object> row, String snakeKey, String camelKey) {
+        Object value = row.get(snakeKey);
+        if (value == null) {
+            value = row.get(camelKey);
+        }
+        return value != null ? String.valueOf(value) : null;
+    }
+
+    private Long asLong(Map<String, Object> row, String snakeKey, String camelKey) {
+        Object value = row.get(snakeKey);
+        if (value == null) {
+            value = row.get(camelKey);
+        }
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        if (value != null) {
+            try {
+                return Long.parseLong(String.valueOf(value));
+            } catch (NumberFormatException ignored) {
+                return 0L;
+            }
+        }
+        return 0L;
     }
 
     public List<ServiceStatsDto> getServiceStats(LocalDateTime startTime, LocalDateTime endTime) {
