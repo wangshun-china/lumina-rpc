@@ -114,6 +114,15 @@ public class ProxyFactory {
                              String cluster, int retries,
                              boolean enableCircuitBreaker, int circuitBreakerThreshold, long circuitBreakerTimeout,
                              boolean enableRateLimit, int rateLimitPermits) {
+        return createProxy(interfaceClass, version, timeout, async, cluster, retries,
+                enableCircuitBreaker, circuitBreakerThreshold, circuitBreakerTimeout,
+                enableRateLimit, rateLimitPermits, "weighted-round-robin");
+    }
+
+    public <T> T createProxy(Class<T> interfaceClass, String version, long timeout, boolean async,
+                             String cluster, int retries,
+                             boolean enableCircuitBreaker, int circuitBreakerThreshold, long circuitBreakerTimeout,
+                             boolean enableRateLimit, int rateLimitPermits, String loadBalance) {
         if (!interfaceClass.isInterface()) {
             throw new IllegalArgumentException("Class must be an interface: " + interfaceClass.getName());
         }
@@ -132,7 +141,8 @@ public class ProxyFactory {
                     circuitBreakerThreshold,
                     circuitBreakerTimeout,
                     enableRateLimit,
-                    rateLimitPermits
+                    rateLimitPermits,
+                    loadBalance
             );
 
             // 使用 ByteBuddy 创建代理
@@ -149,8 +159,8 @@ public class ProxyFactory {
             T proxyInstance = proxyClass.getDeclaredConstructor().newInstance();
 
             if (logger.isDebugEnabled()) {
-                logger.debug("Created proxy for interface: {} (async={}, cluster={}, retries={}, circuitBreaker={}, rateLimit={})",
-                        interfaceClass.getName(), async, cluster, retries, enableCircuitBreaker, enableRateLimit);
+                logger.debug("Created proxy for interface: {} (async={}, cluster={}, retries={}, loadBalance={}, circuitBreaker={}, rateLimit={})",
+                        interfaceClass.getName(), async, cluster, retries, loadBalance, enableCircuitBreaker, enableRateLimit);
             }
 
             return proxyInstance;

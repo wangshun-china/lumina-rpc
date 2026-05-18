@@ -115,4 +115,18 @@ public class TraceReporter {
         }
     }
 
+    /**
+     * 关闭异步上报线程池。
+     */
+    public void shutdown() {
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            executor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
     }
+}

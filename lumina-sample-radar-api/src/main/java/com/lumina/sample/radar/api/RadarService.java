@@ -33,6 +33,12 @@ public interface RadarService {
         private String status;
         /** 扫描耗时 (ms) */
         private long scanTime;
+        /** 下游信号分析状态 */
+        private String signalStatus;
+        /** 信号分析置信度 */
+        private double signalConfidence;
+        /** 信号分析节点 */
+        private String signalAnalyzer;
         /** 详细敌舰信息 */
         private List<EnemyContact> contacts;
     }

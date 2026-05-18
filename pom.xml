@@ -19,6 +19,8 @@
         <!-- Starfleet Demo Cluster - API/Service 分离架构 -->
         <module>lumina-sample-engine-api</module>
         <module>lumina-sample-engine-service</module>
+        <module>lumina-sample-signal-api</module>
+        <module>lumina-sample-signal-service</module>
         <module>lumina-sample-radar-api</module>
         <module>lumina-sample-radar-service</module>
         <module>lumina-sample-command</module>

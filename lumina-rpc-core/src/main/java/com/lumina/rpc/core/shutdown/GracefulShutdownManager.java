@@ -3,7 +3,6 @@ package com.lumina.rpc.core.shutdown;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -14,13 +13,13 @@ import java.util.concurrent.atomic.AtomicInteger;
  * 1. 跟踪正在处理的请求数量 (in-flight requests)
  * 2. 停机时拒绝新请求
  * 3. 等待正在处理的请求完成
- * 4. 超时强制关闭
+ * 4. 超时后交还给应用/容器生命周期继续关闭
  *
  * 设计理念（对标 Dubbo）：
  * - 收到 SIGTERM/SIGINT 信号后，先从注册中心注销
  * - 标记为"停机中"，拒绝新请求
  * - 等待 in-flight 请求完成（固定超时 10 秒）
- * - 超时后强制关闭，打印未完成的请求日志
+ * - 超时后打印未完成的请求日志
  * - 完全本地化设计，无需外部配置同步
  *
  * @author Lumina-RPC Team
@@ -187,17 +186,7 @@ public class GracefulShutdownManager {
         long duration = System.currentTimeMillis() - shutdownStartTime;
         logger.info("🏁 [Graceful Shutdown] Completed in {}ms", duration);
 
-        // 3. 停机完成后退出 JVM（模拟真实生产环境行为）
-        // 注意：在测试环境中可能需要注释掉这行
-        logger.info("💀 [Graceful Shutdown] Exiting JVM...");
-        new Thread(() -> {
-            try {
-                Thread.sleep(500); // 给日志一点时间输出
-                System.exit(0);
-            } catch (InterruptedException e) {
-                System.exit(0);
-            }
-        }, "jvm-exit-hook").start();
+        // SDK 只负责拒绝新请求、注销和等待在途请求；是否退出 JVM 交给应用/容器生命周期。
     }
 
     /**

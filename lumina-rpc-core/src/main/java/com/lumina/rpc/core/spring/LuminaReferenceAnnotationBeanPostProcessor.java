@@ -8,7 +8,6 @@ import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.ApplicationContextAware;
 import org.springframework.core.annotation.Order;
-import org.springframework.stereotype.Component;
 import org.springframework.util.ReflectionUtils;
 
 import java.lang.reflect.Field;
@@ -23,7 +22,6 @@ import java.lang.reflect.Field;
  * @since 1.0.0
  */
 @Slf4j
-@Component
 @Order(100) // 确保在普通 BeanPostProcessor 之后执行
 public class LuminaReferenceAnnotationBeanPostProcessor implements BeanPostProcessor, ApplicationContextAware {
 
@@ -88,6 +86,7 @@ public class LuminaReferenceAnnotationBeanPostProcessor implements BeanPostProce
             boolean async = reference.async();
             String cluster = reference.cluster();
             int retries = reference.retries();
+            String loadBalance = reference.loadBalance();
 
             // 熔断器配置
             boolean enableCircuitBreaker = reference.circuitBreaker();
@@ -98,13 +97,14 @@ public class LuminaReferenceAnnotationBeanPostProcessor implements BeanPostProce
             boolean enableRateLimit = reference.rateLimit();
             int rateLimitPermits = reference.rateLimitPermits();
 
-            log.info("🔧 [Lumina-RPC] Injecting @LuminaReference proxy for: {}.{} (interface: {}, async: {}, cluster: {}, retries: {}, circuitBreaker: {}, rateLimit: {})",
+            log.info("🔧 [Lumina-RPC] Injecting @LuminaReference proxy for: {}.{} (interface: {}, async: {}, cluster: {}, retries: {}, loadBalance: {}, circuitBreaker: {}, rateLimit: {})",
                     bean.getClass().getSimpleName(),
                     field.getName(),
                     interfaceClass.getName(),
                     async,
                     cluster,
                     retries,
+                    loadBalance,
                     enableCircuitBreaker,
                     enableRateLimit);
 
@@ -112,7 +112,7 @@ public class LuminaReferenceAnnotationBeanPostProcessor implements BeanPostProce
             Object proxy = proxyFactory.createProxy(
                     interfaceClass, version, timeout, async, cluster, retries,
                     enableCircuitBreaker, circuitBreakerThreshold, circuitBreakerTimeout,
-                    enableRateLimit, rateLimitPermits
+                    enableRateLimit, rateLimitPermits, loadBalance
             );
 
             // 设置字段可访问并注入代理

@@ -164,8 +164,9 @@ public class ChannelPoolManager {
                         // 添加关闭监听器
                         final ChannelPool finalPool = pool;
                         newChannel.closeFuture().addListener(f -> {
-                            finalPool.removeChannel(newChannel);
-                            globalChannelCount.decrementAndGet();
+                            if (finalPool.removeChannel(newChannel)) {
+                                decrementGlobalCount();
+                            }
                         });
 
                         return newChannel;
@@ -205,13 +206,29 @@ public class ChannelPoolManager {
         ChannelPool pool = poolMap.get(addressKey);
 
         if (pool != null) {
-            pool.returnChannel(channel);
+            if (pool.returnChannel(channel)) {
+                decrementGlobalCount();
+            }
         } else {
             // 池不存在，直接关闭
             if (channel.isActive()) {
                 channel.close();
             }
         }
+    }
+
+    /**
+     * 关闭全部连接池，通常在 NettyClient 停机时调用。
+     */
+    public void closeAll() {
+        poolMap.values().forEach(ChannelPool::closeAll);
+        poolMap.clear();
+        globalChannelCount.set(0);
+        logger.info("Closed all ChannelPools");
+    }
+
+    private void decrementGlobalCount() {
+        globalChannelCount.updateAndGet(current -> Math.max(0, current - 1));
     }
 
     }

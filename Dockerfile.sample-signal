@@ -1,0 +1,24 @@
+# ============================================================
+# Sample Signal Dockerfile (纯运行时)
+# 由 GitHub Actions 构建产物，服务器只需运行
+# ============================================================
+
+FROM eclipse-temurin:21-jre-alpine
+
+WORKDIR /app
+
+RUN addgroup -S lumina && adduser -S lumina -G lumina
+
+# 复制 GitHub Actions 传过来的 Fat JAR
+COPY lumina-sample-signal-service-exec.jar app.jar
+
+RUN chown -R lumina:lumina /app
+USER lumina
+
+ENV JAVA_OPTS="-Xms128m -Xmx256m"
+
+EXPOSE 8084 9084
+
+RUN mkdir -p /app/config
+
+ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]

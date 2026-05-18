@@ -29,6 +29,13 @@
             <version>${project.version}</version>
         </dependency>
 
+        <!-- Downstream Signal Analysis API -->
+        <dependency>
+            <groupId>com.lumina</groupId>
+            <artifactId>lumina-sample-signal-api</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
         <!-- Spring Boot Starter -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

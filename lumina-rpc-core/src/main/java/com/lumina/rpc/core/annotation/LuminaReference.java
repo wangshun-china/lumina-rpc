@@ -45,7 +45,7 @@ public @interface LuminaReference {
      *
      * @return 负载均衡策略名称
      */
-    String loadBalance() default "round-robin";
+    String loadBalance() default "weighted-round-robin";
 
     /**
      * 是否异步调用

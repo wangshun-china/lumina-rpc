@@ -10,6 +10,7 @@ lumina-mysql
 lumina-control-plane
 lumina-dashboard
 lumina-sample-engine
+lumina-sample-signal
 lumina-sample-radar
 lumina-sample-command
 "

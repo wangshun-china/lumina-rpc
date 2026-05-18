@@ -46,3 +46,5 @@ lumina:
     sse:
       timeout-ms: ${SSE_TIMEOUT_MS:1800000}
       heartbeat-interval-seconds: ${SSE_HEARTBEAT_INTERVAL_SECONDS:30}
+    cors:
+      allowed-origins: ${CORS_ALLOWED_ORIGINS:*}

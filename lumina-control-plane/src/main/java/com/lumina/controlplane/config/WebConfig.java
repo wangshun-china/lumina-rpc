@@ -1,6 +1,7 @@
 package com.lumina.controlplane.config;
 
 import org.springframework.context.annotation.Configuration;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
@@ -11,10 +12,13 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
 
+    @Value("${lumina.control-plane.cors.allowed-origins:*}")
+    private String[] allowedOrigins;
+
     @Override
     public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/api/**")
-                .allowedOrigins("*")  // 生产环境应限制为具体域名
+                .allowedOriginPatterns(allowedOrigins)
                 .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
                 .allowedHeaders("*")
                 .allowCredentials(false)
@@ -22,7 +26,7 @@ public class WebConfig implements WebMvcConfigurer {
 
         // SSE 端点特别配置
         registry.addMapping("/api/v1/sse/**")
-                .allowedOrigins("*")
+                .allowedOriginPatterns(allowedOrigins)
                 .allowedMethods("GET")
                 .allowedHeaders("*")
                 .allowCredentials(false)

@@ -10,9 +10,11 @@ import com.lumina.rpc.protocol.spi.SerializerManager;
 import com.lumina.rpc.protocol.transport.NettyClient;
 import com.lumina.rpc.core.transport.ServiceProvider;
 import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
@@ -51,7 +53,7 @@ public class LuminaRpcAutoConfiguration {
     /**
      * 控制平面地址
      */
-    @Value("${lumina.rpc.control-plane-url:http://localhost:8080}")
+    @Value("${lumina.rpc.control-plane-url:${lumina.rpc.registry.address:http://localhost:8080}}")
     private String controlPlaneUrl;
 
     /**
@@ -71,6 +73,18 @@ public class LuminaRpcAutoConfiguration {
 
     @Value("${lumina.rpc.request-timeout-seconds:10}")
     private int requestTimeoutSeconds;
+
+    /**
+     * 当前应用是否启用 Consumer 侧能力：服务发现、客户端连接、代理注入、保护配置同步。
+     */
+    @Value("${lumina.rpc.consumer.enabled:true}")
+    private boolean consumerEnabled;
+
+    /**
+     * 当前应用是否启用 Provider 侧能力：服务暴露、注册、心跳、优雅停机。
+     */
+    @Value("${lumina.rpc.provider.enabled:true}")
+    private boolean providerEnabled;
 
     /**
      * RPC 服务端主机地址
@@ -121,19 +135,26 @@ public class LuminaRpcAutoConfiguration {
                 connectTimeoutSeconds,
                 requestTimeoutSeconds);
 
-        // 启动服务发现（Consumer端）
-        ControlPlaneClient.getInstance().startDiscovery(discoveryRefreshInterval);
-
         // 初始化 TraceReporter（链路追踪上报）
         TraceReporter.getInstance().setControlPlaneUrl(controlPlaneUrl);
         log.info("📡 [Lumina-RPC] TraceReporter initialized, control plane: {}", controlPlaneUrl);
 
-        // 初始化请求统计上报器
-        RequestStatsReporter.initialize(controlPlaneUrl);
-        RequestStatsReporter.getInstance().start();
+        if (consumerEnabled) {
+            // 启动服务发现（Consumer端）
+            ControlPlaneClient.getInstance().startDiscovery(discoveryRefreshInterval);
+
+            // 初始化请求统计上报器
+            RequestStatsReporter.initialize(controlPlaneUrl);
+            RequestStatsReporter.getInstance().start();
+
+            // 启动保护配置同步（熔断、限流、超时、重试、集群策略）
+            ControlPlaneClient.getInstance().startProtectionConfigSync();
+        } else {
+            log.info("📡 [Lumina-RPC] Consumer side disabled, skipping discovery and protection sync");
+        }
 
         // 初始化 Mock 规则订阅（如果启用）
-        if (mockEnabled) {
+        if (consumerEnabled && mockEnabled) {
             List<String> services = parseServiceList(mockSubscribeServices);
             if (!services.isEmpty()) {
                 log.info("📡 [Lumina-RPC] Starting Mock rule subscription for {} services", services.size());
@@ -141,6 +162,23 @@ public class LuminaRpcAutoConfiguration {
             } else {
                 log.info("📡 [Lumina-RPC] Mock enabled but no services configured for subscription");
             }
+        }
+    }
+
+    @PreDestroy
+    public void shutdownControlPlaneClients() {
+        try {
+            RequestStatsReporter.getInstance().stop();
+        } catch (Exception ignored) {
+            // Reporter may be disabled in pure provider applications.
+        }
+
+        TraceReporter.getInstance().shutdown();
+
+        try {
+            ControlPlaneClient.getInstance().shutdown();
+        } catch (Exception ignored) {
+            // ControlPlaneClient may already be shut down by tests or application lifecycle.
         }
     }
 
@@ -182,8 +220,9 @@ public class LuminaRpcAutoConfiguration {
      *
      * @return NettyClient 实例
      */
-    @Bean
+    @Bean(destroyMethod = "shutdown")
     @ConditionalOnMissingBean(NettyClient.class)
+    @ConditionalOnProperty(name = "lumina.rpc.consumer.enabled", havingValue = "true", matchIfMissing = true)
     public NettyClient nettyClient() {
         log.info("🔧 [Lumina-RPC] Registering NettyClient Bean for RPC client connections");
 
@@ -208,6 +247,7 @@ public class LuminaRpcAutoConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean(ProxyFactory.class)
+    @ConditionalOnProperty(name = "lumina.rpc.consumer.enabled", havingValue = "true", matchIfMissing = true)
     public ProxyFactory proxyFactory(NettyClient nettyClient) {
         log.info("🔧 [Lumina-RPC] Registering ProxyFactory Bean for RPC client proxy creation");
         return new ProxyFactory(nettyClient);
@@ -223,6 +263,7 @@ public class LuminaRpcAutoConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean(ServiceProvider.class)
+    @ConditionalOnProperty(name = "lumina.rpc.provider.enabled", havingValue = "true", matchIfMissing = true)
     public ServiceProvider serviceProvider() {
         log.info("🔧 [Lumina-RPC] Registering ServiceProvider Bean for RPC service registration (port={})", serverPort);
         ServiceProvider provider = new ServiceProvider();
@@ -242,6 +283,7 @@ public class LuminaRpcAutoConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean(LuminaReferenceAnnotationBeanPostProcessor.class)
+    @ConditionalOnProperty(name = "lumina.rpc.consumer.enabled", havingValue = "true", matchIfMissing = true)
     public LuminaReferenceAnnotationBeanPostProcessor luminaReferenceAnnotationBeanPostProcessor(ProxyFactory proxyFactory) {
         log.info("🔧 [Lumina-RPC] Registering @LuminaReference Annotation Processor");
         return new LuminaReferenceAnnotationBeanPostProcessor(proxyFactory);
@@ -257,6 +299,7 @@ public class LuminaRpcAutoConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean(LuminaServiceAnnotationBeanPostProcessor.class)
+    @ConditionalOnProperty(name = "lumina.rpc.provider.enabled", havingValue = "true", matchIfMissing = true)
     public LuminaServiceAnnotationBeanPostProcessor luminaServiceAnnotationBeanPostProcessor() {
         log.info("🔧 [Lumina-RPC] Registering @LuminaService Annotation Processor");
         return new LuminaServiceAnnotationBeanPostProcessor();

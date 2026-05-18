@@ -5,6 +5,9 @@ target/
 *.class
 # 排除 Maven 运行产生的日志
 *.log
+# 压测结果和本地数据库
+*.jtl
+data/
 
 # === 前端 (Vue / Node) ===
 # 排除极其庞大的第三方依赖包
@@ -32,3 +35,7 @@ AGENTS.md
 # Interview materials (local only)
 Lumina-RPC-Interview-Questions.md
 Lumina_RPC_Interview_Guide_Strict.md
+
+# 根目录不维护 Node 工作区，前端依赖以 lumina-dashboard 为准
+/package.json
+/package-lock.json

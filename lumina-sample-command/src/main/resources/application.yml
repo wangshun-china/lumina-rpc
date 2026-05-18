@@ -22,14 +22,14 @@ management:
 # Lumina RPC 配置
 lumina:
   rpc:
+    consumer:
+      enabled: true
+    provider:
+      enabled: false
     # 控制平面地址（用于服务发现）
     control-plane-url: ${LUMINA_RPC_CONTROL_PLANE_URL:http://localhost:8080}
     # 服务发现刷新间隔（秒）
     discovery-refresh-interval: 10
-    # 服务端配置 (Consumer 不需要服务端端口，但保留配置)
-    server:
-      host: 127.0.0.1
-      port: 9083
     # 服务配置
     service:
       # 扫描的包路径

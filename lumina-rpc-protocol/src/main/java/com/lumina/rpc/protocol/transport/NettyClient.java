@@ -272,4 +272,27 @@ public class NettyClient implements ChannelPoolManager.ChannelFactory {
         }
     }
 
+    /**
+     * 关闭客户端连接和 Netty 线程组。
+     */
+    public void shutdown() {
+        if (!shutdown.compareAndSet(false, true)) {
+            return;
+        }
+
+        logger.info("Shutting down NettyClient...");
+
+        ChannelPoolManager.getInstance().closeAll();
+
+        channelPool.values().forEach(channel -> {
+            if (channel.isOpen()) {
+                channel.close();
+            }
+        });
+        channelPool.clear();
+        connectionStatus.clear();
+
+        eventLoopGroup.shutdownGracefully(0, 5, TimeUnit.SECONDS).syncUninterruptibly();
+        logger.info("NettyClient shutdown complete");
     }
+}

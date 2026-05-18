@@ -1,9 +1,12 @@
 package com.lumina.sample.radar.service;
 
 import com.lumina.rpc.core.annotation.LuminaService;
+import com.lumina.rpc.core.annotation.LuminaReference;
 import com.lumina.sample.radar.api.RadarService;
 import com.lumina.sample.radar.api.RadarService.ScanResult;
 import com.lumina.sample.radar.api.RadarService.EnemyContact;
+import com.lumina.sample.signal.api.SignalAnalysisService;
+import com.lumina.sample.signal.api.SignalAnalysisService.SignalAnalysis;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
@@ -22,6 +25,9 @@ public class RadarServiceImpl implements RadarService {
 
     private final Random random = new Random();
 
+    @LuminaReference(interfaceClass = SignalAnalysisService.class, timeout = 3000, retries = 2)
+    private SignalAnalysisService signalAnalysisService;
+
     @Override
     public ScanResult scanEnemies(String sector) {
         long startTime = System.currentTimeMillis();
@@ -37,6 +43,11 @@ public class RadarServiceImpl implements RadarService {
             contacts.add(generateEnemyContact(i));
         }
 
+        SignalAnalysis signalAnalysis = analyzeSignals(sector, enemyCount);
+        if (signalAnalysis != null && signalAnalysis.getRecommendedThreatLevel() != null) {
+            threatLevel = signalAnalysis.getRecommendedThreatLevel();
+        }
+
         long scanTime = System.currentTimeMillis() - startTime;
 
         ScanResult result = new ScanResult();
@@ -46,11 +57,29 @@ public class RadarServiceImpl implements RadarService {
         result.setStatus("SCAN_COMPLETE");
         result.setScanTime(scanTime);
         result.setContacts(contacts);
+        if (signalAnalysis != null) {
+            result.setSignalStatus(signalAnalysis.getInterferenceLevel());
+            result.setSignalConfidence(signalAnalysis.getConfidence());
+            result.setSignalAnalyzer(signalAnalysis.getAnalyzerNode());
+        } else {
+            result.setSignalStatus("SIGNAL_ANALYSIS_UNAVAILABLE");
+            result.setSignalConfidence(0);
+        }
 
-        log.info("📡 [Radar] 星区 {} 扫描完成 | 敌舰: {} | 威胁等级: {} | 耗时: {}ms",
-                sector, enemyCount, threatLevel, scanTime);
+        log.info("📡 [Radar] 星区 {} 扫描完成 | 敌舰: {} | 威胁等级: {} | 信号: {} | 耗时: {}ms",
+                sector, enemyCount, threatLevel, result.getSignalStatus(), scanTime);
 
         return result;
+    }
+
+    private SignalAnalysis analyzeSignals(String sector, int enemyCount) {
+        try {
+            return signalAnalysisService.analyzeSector(sector, enemyCount);
+        } catch (Exception e) {
+            log.warn("📶 [Radar] 信号分析不可用，回退到本地威胁计算 | sector={} | error={}",
+                    sector, e.getMessage());
+            return null;
+        }
     }
 
     /**

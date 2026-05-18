@@ -30,7 +30,7 @@ import java.util.concurrent.*;
  * 设计原则（对标 Dubbo）：
  * 1. 单例模式，全局唯一
  * 2. 共享 HttpClient（一个实例）
- * 3. 共享 ScheduledExecutorService（一个线程池）
+ * 3. 定时任务和 SSE 长连接分离，避免长连接阻塞心跳/发现刷新
  * 4. SSE 事件驱动（无轮询兜底、无版本号检查）
  * 5. 断线重连机制
  */
@@ -46,6 +46,7 @@ public class ControlPlaneClient {
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
     private final ScheduledExecutorService scheduler;
+    private final ExecutorService sseExecutor;
 
     // ==================== 配置 ====================
     private final String controlPlaneUrl;
@@ -63,6 +64,9 @@ public class ControlPlaneClient {
     // ==================== SSE状态 ====================
     private volatile boolean sseConnected = false;
     private volatile boolean running = false;
+    private volatile boolean sseListenerStarted = false;
+    private volatile boolean discoveryStarted = false;
+    private volatile boolean protectionConfigSyncStarted = false;
     private volatile List<String> subscribedServices;
 
     // ==================== 配置缓存 ====================
@@ -138,9 +142,14 @@ public class ControlPlaneClient {
                 .build();
         this.objectMapper = new ObjectMapper();
 
-        // 单线程池执行所有定时任务（心跳、发现、SSE重连）
+        // 定时任务不能被 SSE 长连接占住，否则心跳和服务发现会失效。
         this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "control-plane-client");
+            t.setDaemon(true);
+            return t;
+        });
+        this.sseExecutor = Executors.newSingleThreadExecutor(r -> {
+            Thread t = new Thread(r, "control-plane-sse");
             t.setDaemon(true);
             return t;
         });
@@ -282,7 +291,12 @@ public class ControlPlaneClient {
     /**
      * 启动服务发现
      */
-    public void startDiscovery(int refreshIntervalSeconds) {
+    public synchronized void startDiscovery(int refreshIntervalSeconds) {
+        if (discoveryStarted) {
+            return;
+        }
+        discoveryStarted = true;
+
         // 立即刷新一次
         refreshServices();
 
@@ -371,18 +385,30 @@ public class ControlPlaneClient {
     // ==================== SSE订阅（配置同步 + Mock规则） ====================
 
     /**
+     * 启动保护配置同步。
+     *
+     * Consumer 即使不开 Mock，也需要同步熔断、限流、超时和集群策略。
+     */
+    public synchronized void startProtectionConfigSync() {
+        if (protectionConfigSyncStarted) {
+            return;
+        }
+        protectionConfigSyncStarted = true;
+
+        fetchAllProtectionConfigs();
+        startSseListener();
+        logger.info("📡 Protection config sync started");
+    }
+
+    /**
      * 启动SSE订阅（Consumer端）
      */
     public void startSubscription(List<String> serviceNames) {
         this.subscribedServices = serviceNames;
-        this.running = true;
 
-        // 首次拉取所有配置
-        fetchAllProtectionConfigs();
+        // SSE 由保护配置同步统一启动，Mock 只额外拉取订阅的规则。
+        startProtectionConfigSync();
         fetchAllMockRules(serviceNames);
-
-        // 启动SSE监听
-        startSseListener();
 
         logger.info("📡 SSE subscription started for services: {}", serviceNames);
     }
@@ -391,7 +417,12 @@ public class ControlPlaneClient {
      * 启动SSE监听
      */
     private void startSseListener() {
-        scheduler.submit(() -> {
+        if (sseListenerStarted) {
+            return;
+        }
+        running = true;
+        sseListenerStarted = true;
+        sseExecutor.submit(() -> {
             while (running && !Thread.currentThread().isInterrupted()) {
                 try {
                     connectSse();
@@ -518,6 +549,10 @@ public class ControlPlaneClient {
             if (response.statusCode() == 200) {
                 Map<String, Object> result = objectMapper.readValue(response.body(), Map.class);
                 List<Map<String, Object>> configs = (List<Map<String, Object>>) result.get("configs");
+                if (configs == null) {
+                    logger.warn("⚠️ Protection config response missing configs field");
+                    return;
+                }
 
                 for (Map<String, Object> configMap : configs) {
                     ProtectionConfig config = parseProtectionConfig(configMap);
@@ -574,16 +609,61 @@ public class ControlPlaneClient {
      */
     private ProtectionConfig parseProtectionConfig(Map<String, Object> map) {
         ProtectionConfig config = new ProtectionConfig();
-        config.setServiceName((String) map.get("serviceName"));
-        config.setCircuitBreakerEnabled((Boolean) map.getOrDefault("circuitBreakerEnabled", true));
-        config.setCircuitBreakerThreshold(((Number) map.getOrDefault("circuitBreakerThreshold", 50)).intValue());
-        config.setCircuitBreakerTimeout(((Number) map.getOrDefault("circuitBreakerTimeout", 30000)).longValue());
-        config.setRateLimiterEnabled((Boolean) map.getOrDefault("rateLimiterEnabled", false));
-        config.setRateLimiterPermits(((Number) map.getOrDefault("rateLimiterPermits", 100)).intValue());
-        config.setClusterStrategy((String) map.getOrDefault("clusterStrategy", "failover"));
-        config.setRetries(((Number) map.getOrDefault("retries", 3)).intValue());
-        config.setTimeout(((Number) map.getOrDefault("timeoutMs", 0)).longValue());
+        config.setServiceName(asString(map.get("serviceName"), ""));
+        config.setCircuitBreakerEnabled(asBoolean(map.get("circuitBreakerEnabled"), true));
+        config.setCircuitBreakerThreshold(asInt(map.get("circuitBreakerThreshold"), 50));
+        config.setCircuitBreakerTimeout(asLong(map.get("circuitBreakerTimeout"), 30000));
+        config.setRateLimiterEnabled(asBoolean(map.get("rateLimiterEnabled"), false));
+        config.setRateLimiterPermits(asInt(map.get("rateLimiterPermits"), 100));
+        config.setClusterStrategy(asString(map.get("clusterStrategy"), "failover"));
+        config.setRetries(asInt(map.get("retries"), 3));
+        config.setTimeout(asLong(map.get("timeoutMs"), 0));
         return config;
+    }
+
+    private boolean asBoolean(Object value, boolean defaultValue) {
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+        if (value instanceof String str && !str.isBlank()) {
+            return Boolean.parseBoolean(str);
+        }
+        return defaultValue;
+    }
+
+    private int asInt(Object value, int defaultValue) {
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        if (value instanceof String str && !str.isBlank()) {
+            try {
+                return Integer.parseInt(str);
+            } catch (NumberFormatException ignored) {
+                return defaultValue;
+            }
+        }
+        return defaultValue;
+    }
+
+    private long asLong(Object value, long defaultValue) {
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        if (value instanceof String str && !str.isBlank()) {
+            try {
+                return Long.parseLong(str);
+            } catch (NumberFormatException ignored) {
+                return defaultValue;
+            }
+        }
+        return defaultValue;
+    }
+
+    private String asString(Object value, String defaultValue) {
+        if (value instanceof String str && !str.isBlank()) {
+            return str;
+        }
+        return defaultValue;
     }
 
     // ==================== Mock规则 ====================
@@ -634,18 +714,24 @@ public class ControlPlaneClient {
         running = false;
         sseConnected = false;
         heartbeatStarted = false;
+        sseListenerStarted = false;
+        discoveryStarted = false;
+        protectionConfigSyncStarted = false;
 
         // 注销服务
         deregister();
 
         // 停止线程池
         scheduler.shutdown();
+        sseExecutor.shutdownNow();
         try {
             if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
                 scheduler.shutdownNow();
             }
+            sseExecutor.awaitTermination(5, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
             scheduler.shutdownNow();
+            sseExecutor.shutdownNow();
             Thread.currentThread().interrupt();
         }
 

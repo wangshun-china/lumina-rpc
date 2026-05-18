@@ -81,6 +81,7 @@ jobs:
         run: |
           cp lumina-control-plane/target/lumina-control-plane-exec.jar .
           cp lumina-sample-engine-service/target/lumina-sample-engine-service-exec.jar .
+          cp lumina-sample-signal-service/target/lumina-sample-signal-service-exec.jar .
           cp lumina-sample-radar-service/target/lumina-sample-radar-service-exec.jar .
           cp lumina-sample-command/target/lumina-sample-command-exec.jar .
 
@@ -106,13 +107,20 @@ jobs:
           docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:engine-${{ steps.version.outputs.VERSION }}
 
       # 8.3 Sample Radar
+      - name: Build and push signal
+        run: |
+          docker build -f Dockerfile.sample-signal -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:signal -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:signal-${{ steps.version.outputs.VERSION }} .
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:signal
+          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:signal-${{ steps.version.outputs.VERSION }}
+
+      # 8.4 Sample Radar
       - name: Build and push radar
         run: |
           docker build -f Dockerfile.sample-radar -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:radar -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:radar-${{ steps.version.outputs.VERSION }} .
           docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:radar
           docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:radar-${{ steps.version.outputs.VERSION }}
 
-      # 8.4 Sample Command
+      # 8.5 Sample Command
       - name: Build and push command
         run: |
           docker build -f Dockerfile.sample-command -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:command -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:command-${{ steps.version.outputs.VERSION }} .
@@ -263,6 +271,31 @@ jobs:
                     memory: 384M
 
             # -------------------------------------------------------
+            # Signal Analysis Service（信号分析服务）
+            # -------------------------------------------------------
+            sample-signal:
+              image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:signal
+              container_name: lumina-sample-signal
+              restart: unless-stopped
+              environment:
+                JAVA_OPTS: "-Xms128m -Xmx256m -XX:+ExitOnOutOfMemoryError"
+                LOG_LEVEL: INFO
+                LUMINA_RPC_CONTROL_PLANE_URL: http://control-plane:8080
+                LUMINA_RPC_SERVER_HOST: sample-signal
+                TZ: Asia/Shanghai
+              ports:
+                - "8084:8084"
+                - "9084:9084"
+              networks:
+                - lumina-net
+              depends_on:
+                - control-plane
+              deploy:
+                resources:
+                  limits:
+                    memory: 384M
+
+            # -------------------------------------------------------
             # Deep Space Radar Service（深空雷达服务）
             # -------------------------------------------------------
             sample-radar:
@@ -282,6 +315,7 @@ jobs:
                 - lumina-net
               depends_on:
                 - control-plane
+                - sample-signal
               deploy:
                 resources:
                   limits:
@@ -307,6 +341,7 @@ jobs:
               depends_on:
                 - control-plane
                 - sample-engine
+                - sample-signal
                 - sample-radar
               deploy:
                 resources:
@@ -335,8 +370,8 @@ jobs:
 
           echo "=== Step 2: 停止并清理 lumina 相关容器 ==="
           # 强制停止并删除所有 lumina 容器（解决容器名冲突）
-          docker stop lumina-mysql lumina-control-plane lumina-dashboard lumina-sample-engine lumina-sample-radar lumina-sample-command 2>/dev/null || true
-          docker rm lumina-mysql lumina-control-plane lumina-dashboard lumina-sample-engine lumina-sample-radar lumina-sample-command 2>/dev/null || true
+          docker stop lumina-mysql lumina-control-plane lumina-dashboard lumina-sample-engine lumina-sample-signal lumina-sample-radar lumina-sample-command 2>/dev/null || true
+          docker rm lumina-mysql lumina-control-plane lumina-dashboard lumina-sample-engine lumina-sample-signal lumina-sample-radar lumina-sample-command 2>/dev/null || true
           docker compose down --remove-orphans 2>/dev/null || echo "No containers to stop (first run)"
 
           echo "=== Step 3: 清理可能残留的容器 ==="

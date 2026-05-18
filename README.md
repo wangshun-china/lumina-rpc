@@ -56,8 +56,8 @@
 └─────────────────────────────────────────┘
                     ↓
 ┌─ 业务服务层 ─────────────────────────────┐
-│  sample-engine | sample-radar | sample-command │
-│  (Provider)    | (Provider)   | (Consumer)     │
+│  sample-engine | sample-signal | sample-radar | sample-command │
+│  Provider      | Provider      | Provider+Consumer | Consumer  │
 └─────────────────────────────────────────┘
 ```
 
@@ -174,8 +174,12 @@ lumina-rpc/
 ├── lumina-rpc-core/            # 核心层：动态代理、服务发现、负载均衡、Mock引擎
 ├── lumina-control-plane/       # 控制面：注册中心、Mock规则管理、SSE推送
 ├── lumina-dashboard/           # 前端监控面板：Vue 3 + Vue Flow
-├── lumina-sample-engine/       # 示例服务：曲率引擎 (Provider)
-├── lumina-sample-radar/        # 示例服务：深空雷达 (Provider)
+├── lumina-sample-engine-api/   # 示例接口：曲率引擎
+├── lumina-sample-engine-service/ # 示例服务：曲率引擎 (Provider)
+├── lumina-sample-signal-api/   # 示例接口：信号分析
+├── lumina-sample-signal-service/ # 示例服务：信号分析 (Provider)
+├── lumina-sample-radar-api/    # 示例接口：深空雷达
+├── lumina-sample-radar-service/ # 示例服务：深空雷达 (Provider + Consumer)
 ├── lumina-sample-command/      # 示例服务：舰队指挥 (Consumer)
 ├── docker-compose.yml          # 容器编排
 ├── Dockerfile.*                # 各服务 Dockerfile
@@ -209,8 +213,9 @@ docker compose up -d
 java -jar lumina-control-plane/target/lumina-control-plane-exec.jar
 
 # 5. 启动服务提供者
-java -jar lumina-sample-engine/target/lumina-sample-engine-exec.jar
-java -jar lumina-sample-radar/target/lumina-sample-radar-exec.jar
+java -jar lumina-sample-engine-service/target/lumina-sample-engine-service-exec.jar
+java -jar lumina-sample-signal-service/target/lumina-sample-signal-service-exec.jar
+java -jar lumina-sample-radar-service/target/lumina-sample-radar-service-exec.jar
 
 # 6. 启动服务消费者
 java -jar lumina-sample-command/target/lumina-sample-command-exec.jar
@@ -237,6 +242,7 @@ docker compose ps
 | Engine 服务 | http://localhost:8081 |
 | Radar 服务 | http://localhost:8082 |
 | Command 服务 | http://localhost:8083 |
+| Signal 服务 | http://localhost:8084 |
 | 前端面板 | http://localhost:3000 |
 
 ---

@@ -20,6 +20,6 @@ public class CommandServiceApplication {
         SpringApplication.run(CommandServiceApplication.class, args);
         logger.info("🎯 [Starfleet] Fleet Command Center Online - Port 8083");
         logger.info("⚡ 舰队指挥网关已启动 - 自动遥测引擎运行中 (每3秒扫描)");
-        logger.info("🔗 依赖服务: EngineService (曲率引擎) + RadarService (深空雷达)");
+        logger.info("🔗 依赖服务: EngineService (曲率引擎) + RadarService (深空雷达，内部依赖 SignalAnalysisService)");
     }
 }

@@ -18,9 +18,12 @@ management:
 # Lumina RPC 配置
 lumina:
   rpc:
+    consumer:
+      enabled: false
+    provider:
+      enabled: true
     # 注册中心地址
-    registry:
-      address: ${LUMINA_RPC_CONTROL_PLANE_URL:http://localhost:8080}
+    control-plane-url: ${LUMINA_RPC_CONTROL_PLANE_URL:http://localhost:8080}
     # 服务端配置
     server:
       host: ${LUMINA_RPC_SERVER_HOST:127.0.0.1}

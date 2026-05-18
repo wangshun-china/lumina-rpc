@@ -82,6 +82,9 @@ public class RpcClientHandler implements InvocationHandler {
     // 限流阈值
     private final int rateLimitPermits;
 
+    // 负载均衡策略
+    private final String loadBalance;
+
     // ObjectMapper（用于类型转换兜底）
     private final ObjectMapper objectMapper;
 
@@ -103,19 +106,19 @@ public class RpcClientHandler implements InvocationHandler {
     public RpcClientHandler(Class<?> interfaceClass, String version, long timeout,
                             NettyClient nettyClient) {
         this(interfaceClass, version, timeout, false, "failover", 3, nettyClient,
-                true, 50, 30000, false, 100);
+                true, 50, 30000, false, 100, "weighted-round-robin");
     }
 
     public RpcClientHandler(Class<?> interfaceClass, String version, long timeout, boolean async,
                             NettyClient nettyClient) {
         this(interfaceClass, version, timeout, async, "failover", 3, nettyClient,
-                true, 50, 30000, false, 100);
+                true, 50, 30000, false, 100, "weighted-round-robin");
     }
 
     public RpcClientHandler(Class<?> interfaceClass, String version, long timeout, boolean async,
                             String cluster, int retries, NettyClient nettyClient) {
         this(interfaceClass, version, timeout, async, cluster, retries, nettyClient,
-                true, 50, 30000, false, 100);
+                true, 50, 30000, false, 100, "weighted-round-robin");
     }
 
     /**
@@ -125,19 +128,29 @@ public class RpcClientHandler implements InvocationHandler {
                             String cluster, int retries, NettyClient nettyClient,
                             boolean enableCircuitBreaker, int circuitBreakerThreshold, long circuitBreakerTimeout,
                             boolean enableRateLimit, int rateLimitPermits) {
+        this(interfaceClass, version, timeout, async, cluster, retries, nettyClient,
+                enableCircuitBreaker, circuitBreakerThreshold, circuitBreakerTimeout,
+                enableRateLimit, rateLimitPermits, "weighted-round-robin");
+    }
+
+    public RpcClientHandler(Class<?> interfaceClass, String version, long timeout, boolean async,
+                            String cluster, int retries, NettyClient nettyClient,
+                            boolean enableCircuitBreaker, int circuitBreakerThreshold, long circuitBreakerTimeout,
+                            boolean enableRateLimit, int rateLimitPermits, String loadBalance) {
         this.interfaceClass = interfaceClass;
         this.version = version != null ? version : "";
         this.timeout = timeout > 0 ? timeout : 5000;
         this.async = async;
         this.cluster = cluster != null && !cluster.isEmpty() ? cluster : "failover";
         this.retries = retries > 0 ? retries : 3;
+        this.loadBalance = loadBalance != null && !loadBalance.isEmpty() ? loadBalance : "weighted-round-robin";
         this.enableCircuitBreaker = enableCircuitBreaker;
         this.circuitBreakerThreshold = circuitBreakerThreshold;
         this.circuitBreakerTimeout = circuitBreakerTimeout;
         this.enableRateLimit = enableRateLimit;
         this.rateLimitPermits = rateLimitPermits;
         this.nettyClient = nettyClient;
-        this.loadBalancer = LoadBalancerManager.getDefaultLoadBalancer();
+        this.loadBalancer = LoadBalancerManager.getLoadBalancer(this.loadBalance);
         this.requestIdGenerator = RequestIdGenerator.getInstance();
         this.pendingRequestManager = PendingRequestManager.getInstance();
         // 获取 ObjectMapper（用于类型转换兜底，从默认序列化器获取）
@@ -156,33 +169,40 @@ public class RpcClientHandler implements InvocationHandler {
             return method.invoke(this, args);
         }
 
-        String serviceName = interfaceClass.getName();
-        String methodName = method.getName();
+        String previousTraceId = TraceContext.getTraceId();
+        String previousMdcTraceId = MDC.get("traceId");
 
-        // ========== 企业级 Mock 引擎：条件匹配 + 双模处理 ==========
-        MockRule matchedRule = mockRuleManager.getMatchingRule(serviceName, methodName, args);
+        try {
+            String serviceName = interfaceClass.getName();
+            String methodName = method.getName();
 
-        if (matchedRule != null) {
-            // 条件已匹配，根据 Mock 类型处理
-            if (matchedRule.isShortCircuit()) {
-                // 短路模式：直接返回 Mock 数据，不发起网络请求（传入 args 用于条件匹配）
-                return mockRuleManager.executeMock(serviceName, methodName, args, method.getReturnType());
-            } else if (matchedRule.isTamper()) {
-                // 篡改模式：先发起真实调用，再合并 Mock 数据
-                return invokeWithTamper(matchedRule, serviceName, methodName, method, args);
+            // ========== 企业级 Mock 引擎：条件匹配 + 双模处理 ==========
+            MockRule matchedRule = mockRuleManager.getMatchingRule(serviceName, methodName, args);
+
+            if (matchedRule != null) {
+                // 条件已匹配，根据 Mock 类型处理
+                if (matchedRule.isShortCircuit()) {
+                    // 短路模式：直接返回 Mock 数据，不发起网络请求（传入 args 用于条件匹配）
+                    return mockRuleManager.executeMock(serviceName, methodName, args, method.getReturnType());
+                } else if (matchedRule.isTamper()) {
+                    // 篡改模式：先发起真实调用，再合并 Mock 数据
+                    return invokeWithTamper(matchedRule, serviceName, methodName, method, args);
+                }
             }
+
+            // 构建 RpcRequest
+            RpcRequest request = buildRpcRequest(method, args);
+
+            // 异步调用支持
+            if (async || isAsyncReturnType(method)) {
+                return sendRequestAsync(request, method);
+            }
+
+            // 同步调用
+            return sendRequest(request, method);
+        } finally {
+            restoreTraceContext(previousTraceId, previousMdcTraceId);
         }
-
-        // 构建 RpcRequest
-        RpcRequest request = buildRpcRequest(method, args);
-
-        // 异步调用支持
-        if (async || isAsyncReturnType(method)) {
-            return sendRequestAsync(request, method);
-        }
-
-        // 同步调用
-        return sendRequest(request, method);
     }
 
     /**
@@ -395,5 +415,19 @@ public class RpcClientHandler implements InvocationHandler {
         }
 
         return result;
+    }
+
+    private void restoreTraceContext(String previousTraceId, String previousMdcTraceId) {
+        if (previousTraceId == null) {
+            TraceContext.clear();
+        } else {
+            TraceContext.setTraceId(previousTraceId);
+        }
+
+        if (previousMdcTraceId == null) {
+            MDC.remove("traceId");
+        } else {
+            MDC.put("traceId", previousMdcTraceId);
+        }
     }
 }

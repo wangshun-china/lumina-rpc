@@ -1,9 +1,0 @@
-{
-  "name": "lumina-rpc",
-  "version": "1.0.0",
-  "description": "Lumina-RPC Monorepo",
-  "private": true,
-  "workspaces": [
-    "lumina-dashboard"
-  ]
-}

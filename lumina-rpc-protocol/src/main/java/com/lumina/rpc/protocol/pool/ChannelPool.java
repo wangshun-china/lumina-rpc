@@ -5,7 +5,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.InetSocketAddress;
+import java.util.Set;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
@@ -30,8 +32,11 @@ public class ChannelPool {
     /** 空闲 Channel 队列 */
     private final ConcurrentLinkedQueue<Channel> idleChannels;
 
-    /** 活跃 Channel 数量 */
-    private final AtomicInteger activeCount;
+    /** 当前借出的 Channel */
+    private final Set<Channel> borrowedChannels;
+
+    /** 当前池内总 Channel 数量（空闲 + 借出） */
+    private final AtomicInteger totalCount;
 
     /** 最大 Channel 数量 */
     private final int maxChannels;
@@ -50,7 +55,8 @@ public class ChannelPool {
         this.address = address;
         this.addressKey = address.getHostString() + ":" + address.getPort();
         this.idleChannels = new ConcurrentLinkedQueue<>();
-        this.activeCount = new AtomicInteger(0);
+        this.borrowedChannels = ConcurrentHashMap.newKeySet();
+        this.totalCount = new AtomicInteger(0);
         this.minChannels = minChannels;
         this.maxChannels = maxChannels;
 
@@ -64,15 +70,20 @@ public class ChannelPool {
      */
     public Channel borrowChannel() {
         // 优先从空闲队列获取
-        Channel channel = idleChannels.poll();
-        if (channel != null && channel.isActive()) {
-            activeCount.incrementAndGet();
-            logger.debug("🔄 Reused idle channel for {}", addressKey);
-            return channel;
+        Channel channel;
+        while ((channel = idleChannels.poll()) != null) {
+            if (channel.isActive()) {
+                borrowedChannels.add(channel);
+                logger.debug("🔄 Reused idle channel for {}", addressKey);
+                return channel;
+            }
+
+            decrementTotalCount();
+            logger.debug("❌ Discarded inactive idle channel for {}", addressKey);
         }
 
         // 空闲队列为空或 Channel 失效，检查是否可以创建新连接
-        if (activeCount.get() < maxChannels) {
+        if (totalCount.get() < maxChannels) {
             // 返回 null 表示需要创建新连接
             logger.debug("📥 No idle channel, need to create new for {}", addressKey);
             return null;
@@ -88,16 +99,26 @@ public class ChannelPool {
      *
      * @param channel 使用完毕的 Channel
      */
-    public void returnChannel(Channel channel) {
-        if (channel == null || !channel.isActive()) {
-            activeCount.decrementAndGet();
+    public boolean returnChannel(Channel channel) {
+        if (channel == null) {
+            return false;
+        }
+
+        boolean wasBorrowed = borrowedChannels.remove(channel);
+        if (!wasBorrowed) {
+            logger.debug("Ignored duplicate return for {}", addressKey);
+            return false;
+        }
+
+        if (!channel.isActive()) {
+            decrementTotalCount();
             logger.debug("❌ Returned inactive channel for {}", addressKey);
-            return;
+            return true;
         }
 
         idleChannels.offer(channel);
-        activeCount.decrementAndGet();
         logger.debug("📤 Returned channel to pool for {}", addressKey);
+        return false;
     }
 
     /**
@@ -110,7 +131,8 @@ public class ChannelPool {
             return;
         }
 
-        activeCount.incrementAndGet();
+        borrowedChannels.add(channel);
+        totalCount.incrementAndGet();
         logger.debug("✅ Added new channel for {}", addressKey);
     }
 
@@ -119,17 +141,42 @@ public class ChannelPool {
      *
      * @param channel 失效的 Channel
      */
-    public void removeChannel(Channel channel) {
-        idleChannels.remove(channel);
-        activeCount.decrementAndGet();
-        logger.debug("🗑️ Removed inactive channel for {}", addressKey);
+    public boolean removeChannel(Channel channel) {
+        boolean removedIdle = idleChannels.remove(channel);
+        boolean removedBorrowed = borrowedChannels.remove(channel);
+
+        if (removedIdle || removedBorrowed) {
+            decrementTotalCount();
+            logger.debug("🗑️ Removed inactive channel for {}", addressKey);
+            return true;
+        }
+        return false;
     }
 
     /**
      * 检查是否可以创建新连接
      */
     public boolean canCreate() {
-        return (activeCount.get() + idleChannels.size()) < maxChannels;
+        return totalCount.get() < maxChannels;
+    }
+
+    /**
+     * 关闭池内全部连接。
+     */
+    public void closeAll() {
+        idleChannels.forEach(channel -> {
+            if (channel.isOpen()) {
+                channel.close();
+            }
+        });
+        borrowedChannels.forEach(channel -> {
+            if (channel.isOpen()) {
+                channel.close();
+            }
+        });
+        idleChannels.clear();
+        borrowedChannels.clear();
+        totalCount.set(0);
     }
 
     /**
@@ -141,7 +188,11 @@ public class ChannelPool {
 
     @Override
     public String toString() {
-        return String.format("ChannelPool[%s: active=%d, idle=%d, max=%d]",
-                addressKey, activeCount.get(), idleChannels.size(), maxChannels);
+        return String.format("ChannelPool[%s: borrowed=%d, idle=%d, total=%d, max=%d]",
+                addressKey, borrowedChannels.size(), idleChannels.size(), totalCount.get(), maxChannels);
+    }
+
+    private void decrementTotalCount() {
+        totalCount.updateAndGet(current -> Math.max(0, current - 1));
     }
 }
