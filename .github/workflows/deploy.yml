@@ -16,15 +16,15 @@ on:
 
 env:
   # 单点真实来源 (Single Source of Truth) - 所有镜像和配置统一从这里定义
-  REGISTRY: crpi-r1wme86kfaw7rr3f.cn-shanghai.personal.cr.aliyuncs.com
-  IMAGE_NAME: wangshun_build/lumina-rpc
-  ALIYUN_USERNAME: aliyun4384550071
-  ALIYUN_PASSWORD: wangshun817
+  ALIYUN_ACR_REGISTRY: ${{ vars.ALIYUN_ACR_REGISTRY }}
+  ALIYUN_ACR_USERNAME: ${{ vars.ALIYUN_ACR_USERNAME }}
+  ALIYUN_ACR_PASSWORD: ${{ secrets.ALIYUN_ACR_PASSWORD }}
+  LUMINA_RPC_IMAGE_NAME: ${{ vars.LUMINA_RPC_IMAGE_NAME }}
 
   # 基础设施配置 (IaC)
-  MYSQL_ROOT_PASSWORD: lumina123
-  MYSQL_USER: lumina
-  MYSQL_PASSWORD: lumina123
+  LUMINA_RPC_MYSQL_ROOT_PASSWORD: ${{ secrets.LUMINA_RPC_MYSQL_ROOT_PASSWORD }}
+  LUMINA_RPC_MYSQL_USERNAME: ${{ vars.LUMINA_RPC_MYSQL_USERNAME }}
+  LUMINA_RPC_MYSQL_PASSWORD: ${{ secrets.LUMINA_RPC_MYSQL_PASSWORD }}
   CONTROL_PLANE_PORT: 8080
   DASHBOARD_PORT: 3000
 
@@ -67,9 +67,9 @@ jobs:
       - name: Login to Aliyun ACR
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ env.ALIYUN_USERNAME }}
-          password: ${{ env.ALIYUN_PASSWORD }}
+          registry: ${{ env.ALIYUN_ACR_REGISTRY }}
+          username: ${{ env.ALIYUN_ACR_USERNAME }}
+          password: ${{ env.ALIYUN_ACR_PASSWORD }}
 
       # Step 6: 生成版本标签
       - name: Generate version tag
@@ -95,44 +95,44 @@ jobs:
       # 8.1 Control Plane
       - name: Build and push control-plane
         run: |
-          docker build -f Dockerfile.control-plane -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:control-plane -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:control-plane-${{ steps.version.outputs.VERSION }} .
-          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:control-plane
-          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:control-plane-${{ steps.version.outputs.VERSION }}
+          docker build -f Dockerfile.control-plane -t ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:control-plane -t ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:control-plane-${{ steps.version.outputs.VERSION }} .
+          docker push ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:control-plane
+          docker push ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:control-plane-${{ steps.version.outputs.VERSION }}
 
       # 8.2 Sample Engine
       - name: Build and push engine
         run: |
-          docker build -f Dockerfile.sample-engine -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:engine -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:engine-${{ steps.version.outputs.VERSION }} .
-          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:engine
-          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:engine-${{ steps.version.outputs.VERSION }}
+          docker build -f Dockerfile.sample-engine -t ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:engine -t ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:engine-${{ steps.version.outputs.VERSION }} .
+          docker push ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:engine
+          docker push ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:engine-${{ steps.version.outputs.VERSION }}
 
       # 8.3 Sample Radar
       - name: Build and push signal
         run: |
-          docker build -f Dockerfile.sample-signal -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:signal -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:signal-${{ steps.version.outputs.VERSION }} .
-          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:signal
-          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:signal-${{ steps.version.outputs.VERSION }}
+          docker build -f Dockerfile.sample-signal -t ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:signal -t ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:signal-${{ steps.version.outputs.VERSION }} .
+          docker push ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:signal
+          docker push ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:signal-${{ steps.version.outputs.VERSION }}
 
       # 8.4 Sample Radar
       - name: Build and push radar
         run: |
-          docker build -f Dockerfile.sample-radar -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:radar -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:radar-${{ steps.version.outputs.VERSION }} .
-          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:radar
-          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:radar-${{ steps.version.outputs.VERSION }}
+          docker build -f Dockerfile.sample-radar -t ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:radar -t ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:radar-${{ steps.version.outputs.VERSION }} .
+          docker push ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:radar
+          docker push ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:radar-${{ steps.version.outputs.VERSION }}
 
       # 8.5 Sample Command
       - name: Build and push command
         run: |
-          docker build -f Dockerfile.sample-command -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:command -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:command-${{ steps.version.outputs.VERSION }} .
-          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:command
-          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:command-${{ steps.version.outputs.VERSION }}
+          docker build -f Dockerfile.sample-command -t ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:command -t ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:command-${{ steps.version.outputs.VERSION }} .
+          docker push ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:command
+          docker push ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:command-${{ steps.version.outputs.VERSION }}
 
       # Step 9: 构建并推送前端 Dashboard 镜像
       - name: Build and push dashboard
         run: |
-          docker build -f Dockerfile.front -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dashboard -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dashboard-${{ steps.version.outputs.VERSION }} .
-          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dashboard
-          docker push ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dashboard-${{ steps.version.outputs.VERSION }}
+          docker build -f Dockerfile.front -t ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:dashboard -t ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:dashboard-${{ steps.version.outputs.VERSION }} .
+          docker push ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:dashboard
+          docker push ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:dashboard-${{ steps.version.outputs.VERSION }}
 
   deploy:
     name: Deploy to ${{ github.event.inputs.target_env || 'wsl' }}
@@ -147,9 +147,9 @@ jobs:
       - name: Login to Aliyun ACR
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ env.ALIYUN_USERNAME }}
-          password: ${{ env.ALIYUN_PASSWORD }}
+          registry: ${{ env.ALIYUN_ACR_REGISTRY }}
+          username: ${{ env.ALIYUN_ACR_USERNAME }}
+          password: ${{ env.ALIYUN_ACR_PASSWORD }}
 
       # Step 2: 本地部署 - 基础设施即代码 (IaC)
       - name: Deploy with Docker Compose (IaC)
@@ -177,10 +177,10 @@ jobs:
               hostname: lumina-mysql
               restart: unless-stopped
               environment:
-                MYSQL_ROOT_PASSWORD: ${{ env.MYSQL_ROOT_PASSWORD }}
+                MYSQL_ROOT_PASSWORD: ${{ env.LUMINA_RPC_MYSQL_ROOT_PASSWORD }}
                 MYSQL_DATABASE: lumina
-                MYSQL_USER: ${{ env.MYSQL_USER }}
-                MYSQL_PASSWORD: ${{ env.MYSQL_PASSWORD }}
+                MYSQL_USER: ${{ env.LUMINA_RPC_MYSQL_USERNAME }}
+                MYSQL_PASSWORD: ${{ env.LUMINA_RPC_MYSQL_PASSWORD }}
               ports:
                 - "3306:3306"
               networks:
@@ -200,7 +200,7 @@ jobs:
             # Control Plane（控制面）
             # -------------------------------------------------------
             control-plane:
-              image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:control-plane
+              image: ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:control-plane
               container_name: lumina-control-plane
               restart: unless-stopped
               environment:
@@ -208,8 +208,8 @@ jobs:
                 LOG_LEVEL: INFO
                 MYBATIS_LOG: org.apache.ibatis.logging.nologging.NoLoggingImpl
                 MYSQL_URL: jdbc:mysql://lumina-mysql:3306/lumina?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
-                MYSQL_USER: ${{ env.MYSQL_USER }}
-                MYSQL_PASSWORD: ${{ env.MYSQL_PASSWORD }}
+                MYSQL_USER: ${{ env.LUMINA_RPC_MYSQL_USERNAME }}
+                MYSQL_PASSWORD: ${{ env.LUMINA_RPC_MYSQL_PASSWORD }}
                 TZ: Asia/Shanghai
               ports:
                 - "${{ env.CONTROL_PLANE_PORT }}:8080"
@@ -231,7 +231,7 @@ jobs:
             # Dashboard（前端监控面板）
             # -------------------------------------------------------
             dashboard:
-              image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dashboard
+              image: ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:dashboard
               container_name: lumina-dashboard
               restart: unless-stopped
               ports:
@@ -249,7 +249,7 @@ jobs:
             # Warp Engine Service（曲率引擎服务）
             # -------------------------------------------------------
             sample-engine:
-              image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:engine
+              image: ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:engine
               container_name: lumina-sample-engine
               restart: unless-stopped
               environment:
@@ -274,7 +274,7 @@ jobs:
             # Signal Analysis Service（信号分析服务）
             # -------------------------------------------------------
             sample-signal:
-              image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:signal
+              image: ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:signal
               container_name: lumina-sample-signal
               restart: unless-stopped
               environment:
@@ -299,7 +299,7 @@ jobs:
             # Deep Space Radar Service（深空雷达服务）
             # -------------------------------------------------------
             sample-radar:
-              image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:radar
+              image: ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:radar
               container_name: lumina-sample-radar
               restart: unless-stopped
               environment:
@@ -325,7 +325,7 @@ jobs:
             # Fleet Command Gateway（舰队指挥网关）
             # -------------------------------------------------------
             sample-command:
-              image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:command
+              image: ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:command
               container_name: lumina-sample-command
               restart: unless-stopped
               environment:
@@ -385,7 +385,7 @@ jobs:
           sleep 20
 
           for i in {1..30}; do
-            if docker exec lumina-mysql mysql -u${{ env.MYSQL_USER }} -p${{ env.MYSQL_PASSWORD }} -e "SELECT 1" 2>/dev/null; then
+            if docker exec lumina-mysql mysql -u${{ env.LUMINA_RPC_MYSQL_USERNAME }} -p${{ env.LUMINA_RPC_MYSQL_PASSWORD }} -e "SELECT 1" 2>/dev/null; then
               echo "MySQL is ready!"
               break
             fi

@@ -14,11 +14,11 @@ Lumina-RPC 是一款包含“核心通信 SDK”、“云端控制面”与“�
 
 ## 3. 全局数据库规范 (Zeabur 生产环境)
 控制面必须连接至以下 MySQL 数据库持久化数据：
-- **Host:** cgk1.clusters.zeabur.com
+- **Host:** `${LUMINA_RPC_ZEABUR_MYSQL_HOST}`
 - **Port:** 29418
 - **Database:** zeabur
-- **User:** root
-- **Password:** 0QqSfjDCp73y2o69dYO8z1nRUbshW45E
+- **User:** `${LUMINA_RPC_ZEABUR_MYSQL_USERNAME}`
+- **Password:** `${LUMINA_RPC_ZEABUR_MYSQL_PASSWORD}`
 
 核心表结构要求（请在控制面使用 Spring Data JPA 自动生成，或提供 SQL 脚本）：
 - `lumina_service_instance`: 记录微服务节点 (id, service_name, ip, port, status, last_heartbeat)。

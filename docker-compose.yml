@@ -10,16 +10,16 @@ services:
     hostname: lumina-mysql
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-lumina123}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-lumina}
-      MYSQL_USER: ${MYSQL_USER:-lumina}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-lumina123}
+      MYSQL_ROOT_PASSWORD: ${LUMINA_RPC_MYSQL_ROOT_PASSWORD:?set LUMINA_RPC_MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${LUMINA_RPC_MYSQL_DATABASE:-lumina}
+      MYSQL_USER: ${LUMINA_RPC_MYSQL_USERNAME:-lumina}
+      MYSQL_PASSWORD: ${LUMINA_RPC_MYSQL_PASSWORD:?set LUMINA_RPC_MYSQL_PASSWORD}
       # 兼容应用侧/PaaS 命名；MySQL 镜像真正用于初始化账号的是上面的 MYSQL_*。
-      DB_USER: ${DB_USER:-lumina}
-      DB_PASS: ${DB_PASS:-lumina123}
+      DB_USER: ${LUMINA_RPC_MYSQL_USERNAME:-lumina}
+      DB_PASS: ${LUMINA_RPC_MYSQL_PASSWORD:?set LUMINA_RPC_MYSQL_PASSWORD}
       TZ: Asia/Shanghai
     ports:
-      - "${MYSQL_PORT:-3306}:3306"
+      - "${LUMINA_RPC_MYSQL_PORT:-3306}:3306"
     volumes:
       - mysql-data:/var/lib/mysql
     command:
