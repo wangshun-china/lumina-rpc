@@ -249,7 +249,7 @@ docker compose ps
 
 ## CI/CD 流程
 
-push to master 自动构建并推送镜像；生产部署只允许从 GitHub Actions 手动触发：
+构建、推送镜像和生产部署只允许从 GitHub Actions 手动触发：
 
 1. **Checkout** → 检出代码
 2. **Build** → Maven 构建后端，pnpm 构建前端
