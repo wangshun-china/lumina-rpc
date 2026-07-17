@@ -14,7 +14,13 @@ on:
           - aliyun
           - wsl
 
+permissions:
+  contents: read
+  packages: write
+
 env:
+  GHCR_REGISTRY: ghcr.io
+  GHCR_IMAGE_NAME: ${{ github.repository_owner }}/${{ github.event.repository.name }}
   # 单点真实来源 (Single Source of Truth) - 所有镜像和配置统一从这里定义
   ALIYUN_ACR_REGISTRY: ${{ vars.ALIYUN_ACR_REGISTRY }}
   ALIYUN_ACR_USERNAME: ${{ vars.ALIYUN_ACR_USERNAME }}
@@ -63,6 +69,13 @@ jobs:
           pnpm install
           pnpm build
 
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.GHCR_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
       # Step 5: 登录阿里云仓库
       - name: Login to Aliyun ACR
         uses: docker/login-action@v3
@@ -95,42 +108,54 @@ jobs:
       # 8.1 Control Plane
       - name: Build and push control-plane
         run: |
-          docker build -f Dockerfile.control-plane -t ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:control-plane -t ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:control-plane-${{ steps.version.outputs.VERSION }} .
+          docker build -f Dockerfile.control-plane -t ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}:control-plane -t ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}:control-plane-${{ steps.version.outputs.VERSION }} -t ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:control-plane -t ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:control-plane-${{ steps.version.outputs.VERSION }} .
+          docker push ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}:control-plane
+          docker push ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}:control-plane-${{ steps.version.outputs.VERSION }}
           docker push ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:control-plane
           docker push ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:control-plane-${{ steps.version.outputs.VERSION }}
 
       # 8.2 Sample Engine
       - name: Build and push engine
         run: |
-          docker build -f Dockerfile.sample-engine -t ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:engine -t ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:engine-${{ steps.version.outputs.VERSION }} .
+          docker build -f Dockerfile.sample-engine -t ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}:engine -t ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}:engine-${{ steps.version.outputs.VERSION }} -t ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:engine -t ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:engine-${{ steps.version.outputs.VERSION }} .
+          docker push ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}:engine
+          docker push ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}:engine-${{ steps.version.outputs.VERSION }}
           docker push ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:engine
           docker push ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:engine-${{ steps.version.outputs.VERSION }}
 
       # 8.3 Sample Radar
       - name: Build and push signal
         run: |
-          docker build -f Dockerfile.sample-signal -t ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:signal -t ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:signal-${{ steps.version.outputs.VERSION }} .
+          docker build -f Dockerfile.sample-signal -t ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}:signal -t ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}:signal-${{ steps.version.outputs.VERSION }} -t ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:signal -t ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:signal-${{ steps.version.outputs.VERSION }} .
+          docker push ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}:signal
+          docker push ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}:signal-${{ steps.version.outputs.VERSION }}
           docker push ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:signal
           docker push ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:signal-${{ steps.version.outputs.VERSION }}
 
       # 8.4 Sample Radar
       - name: Build and push radar
         run: |
-          docker build -f Dockerfile.sample-radar -t ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:radar -t ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:radar-${{ steps.version.outputs.VERSION }} .
+          docker build -f Dockerfile.sample-radar -t ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}:radar -t ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}:radar-${{ steps.version.outputs.VERSION }} -t ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:radar -t ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:radar-${{ steps.version.outputs.VERSION }} .
+          docker push ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}:radar
+          docker push ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}:radar-${{ steps.version.outputs.VERSION }}
           docker push ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:radar
           docker push ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:radar-${{ steps.version.outputs.VERSION }}
 
       # 8.5 Sample Command
       - name: Build and push command
         run: |
-          docker build -f Dockerfile.sample-command -t ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:command -t ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:command-${{ steps.version.outputs.VERSION }} .
+          docker build -f Dockerfile.sample-command -t ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}:command -t ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}:command-${{ steps.version.outputs.VERSION }} -t ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:command -t ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:command-${{ steps.version.outputs.VERSION }} .
+          docker push ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}:command
+          docker push ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}:command-${{ steps.version.outputs.VERSION }}
           docker push ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:command
           docker push ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:command-${{ steps.version.outputs.VERSION }}
 
       # Step 9: 构建并推送前端 Dashboard 镜像
       - name: Build and push dashboard
         run: |
-          docker build -f Dockerfile.front -t ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:dashboard -t ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:dashboard-${{ steps.version.outputs.VERSION }} .
+          docker build -f Dockerfile.front -t ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}:dashboard -t ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}:dashboard-${{ steps.version.outputs.VERSION }} -t ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:dashboard -t ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:dashboard-${{ steps.version.outputs.VERSION }} .
+          docker push ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}:dashboard
+          docker push ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}:dashboard-${{ steps.version.outputs.VERSION }}
           docker push ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:dashboard
           docker push ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:dashboard-${{ steps.version.outputs.VERSION }}
 
@@ -143,18 +168,46 @@ jobs:
       VERSION: ${{ needs.build-and-push.outputs.VERSION }}
 
     steps:
-      # Step 1: 登录阿里云 ACR
-      - name: Login to Aliyun ACR
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.ALIYUN_ACR_REGISTRY }}
-          username: ${{ env.ALIYUN_ACR_USERNAME }}
-          password: ${{ env.ALIYUN_ACR_PASSWORD }}
+      - name: Resolve deployment image repository
+        shell: bash
+        run: |
+          export DOCKER_CONFIG="$(mktemp -d)"
+          trap 'rm -rf "$DOCKER_CONFIG"' EXIT
+
+          printf '%s' "${{ github.token }}" |
+            docker login "${{ env.GHCR_REGISTRY }}" -u "${{ github.actor }}" --password-stdin
+          printf '%s' "${{ env.ALIYUN_ACR_PASSWORD }}" |
+            docker login "${{ env.ALIYUN_ACR_REGISTRY }}" -u "${{ env.ALIYUN_ACR_USERNAME }}" --password-stdin
+
+          GHCR_REPOSITORY="${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE_NAME }}"
+          ACR_REPOSITORY="${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}"
+          TAGS=(control-plane engine signal radar command dashboard)
+
+          pull_release() {
+            local repository="$1"
+            local service
+            for service in "${TAGS[@]}"; do
+              docker pull "${repository}:${service}-${VERSION}" || return 1
+            done
+          }
+
+          if pull_release "$GHCR_REPOSITORY"; then
+            IMAGE_REPOSITORY="$GHCR_REPOSITORY"
+          elif pull_release "$ACR_REPOSITORY"; then
+            echo "GHCR pull failed; using Aliyun ACR fallback."
+            IMAGE_REPOSITORY="$ACR_REPOSITORY"
+          else
+            echo "Unable to pull the complete release from GHCR or Aliyun ACR." >&2
+            exit 1
+          fi
+
+          echo "IMAGE_REPOSITORY=${IMAGE_REPOSITORY}" >> "$GITHUB_ENV"
 
       # Step 2: 本地部署 - 基础设施即代码 (IaC)
       - name: Deploy with Docker Compose (IaC)
         run: |
           mkdir -p lumina-rpc && cd lumina-rpc
+          printf 'IMAGE_REPOSITORY=%s\nVERSION=%s\n' "$IMAGE_REPOSITORY" "$VERSION" > .env
 
           echo "=== Infrastructure as Code - 生成 docker-compose.yml ==="
 
@@ -200,7 +253,7 @@ jobs:
             # Control Plane（控制面）
             # -------------------------------------------------------
             control-plane:
-              image: ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:control-plane
+              image: ${IMAGE_REPOSITORY}:control-plane-${VERSION}
               container_name: lumina-control-plane
               restart: unless-stopped
               environment:
@@ -231,7 +284,7 @@ jobs:
             # Dashboard（前端监控面板）
             # -------------------------------------------------------
             dashboard:
-              image: ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:dashboard
+              image: ${IMAGE_REPOSITORY}:dashboard-${VERSION}
               container_name: lumina-dashboard
               restart: unless-stopped
               ports:
@@ -249,7 +302,7 @@ jobs:
             # Warp Engine Service（曲率引擎服务）
             # -------------------------------------------------------
             sample-engine:
-              image: ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:engine
+              image: ${IMAGE_REPOSITORY}:engine-${VERSION}
               container_name: lumina-sample-engine
               restart: unless-stopped
               environment:
@@ -274,7 +327,7 @@ jobs:
             # Signal Analysis Service（信号分析服务）
             # -------------------------------------------------------
             sample-signal:
-              image: ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:signal
+              image: ${IMAGE_REPOSITORY}:signal-${VERSION}
               container_name: lumina-sample-signal
               restart: unless-stopped
               environment:
@@ -299,7 +352,7 @@ jobs:
             # Deep Space Radar Service（深空雷达服务）
             # -------------------------------------------------------
             sample-radar:
-              image: ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:radar
+              image: ${IMAGE_REPOSITORY}:radar-${VERSION}
               container_name: lumina-sample-radar
               restart: unless-stopped
               environment:
@@ -325,7 +378,7 @@ jobs:
             # Fleet Command Gateway（舰队指挥网关）
             # -------------------------------------------------------
             sample-command:
-              image: ${{ env.ALIYUN_ACR_REGISTRY }}/${{ env.LUMINA_RPC_IMAGE_NAME }}:command
+              image: ${IMAGE_REPOSITORY}:command-${VERSION}
               container_name: lumina-sample-command
               restart: unless-stopped
               environment:
@@ -378,7 +431,7 @@ jobs:
           docker ps -a | grep 'lumina-' | awk '{print $1}' | xargs -r docker rm -f 2>/dev/null || echo "No residual containers"
 
           echo "=== Step 3: 拉取新版本镜像 ==="
-          docker compose pull
+          docker compose pull mysql
 
           echo "=== Step 4: 顺序启动服务 ==="
           docker compose up -d mysql

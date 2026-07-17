@@ -253,8 +253,8 @@ push to master 自动触发部署：
 
 1. **Checkout** → 检出代码
 2. **Build** → Maven 构建后端，pnpm 构建前端
-3. **Docker Build** → 构建并推送 5 个镜像到阿里云 ACR
-4. **Deploy** → SSH 远程执行部署文件中的线上编排
+3. **Docker Build** → 构建服务镜像并同时推送到 GHCR 和阿里云 ACR
+4. **Deploy** → Self-hosted Runner 优先拉取 GHCR，失败时整组回退 ACR
 
 部署目标：阿里云 ECS (120.26.186.0)，执行时间约 5-8 分钟。
 
