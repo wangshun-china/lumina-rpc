@@ -161,8 +161,9 @@ jobs:
 
   deploy:
     name: Deploy to ${{ github.event.inputs.target_env || 'wsl' }}
+    if: github.event_name == 'workflow_dispatch'
     needs: build-and-push
-    # 神级代码：如果是网页端手动选的就用选的标签，如果是 push 代码自动触发的，默认用 aliyun
+    # 部署只允许手动触发，并使用网页端选择的 Runner 标签。
     runs-on: [self-hosted, "${{ github.event.inputs.target_env || 'wsl' }}"]
     env:
       VERSION: ${{ needs.build-and-push.outputs.VERSION }}
