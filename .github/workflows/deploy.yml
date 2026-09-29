@@ -176,7 +176,7 @@ jobs:
       packages: read
     env:
       ALIYUN_ACR_PASSWORD: ${{ secrets.ALIYUN_ACR_PASSWORD }}
-      RELAY_MIRROR_HOST: ghcr.wangshun.work
+      RELAY_MIRROR_HOST: docker.m.daocloud.io/ghcr.io
     steps:
       - name: Pull from GHCR and push to Aliyun ACR
         shell: bash
