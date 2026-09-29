@@ -1,0 +1,177 @@
+# lumina-rpc 生产应用服务定义（由 deploy-template.yml 部署模板读取）
+# 镜像一律引用模板导出的 IMAGE_* 变量；mysql 卷名固定为 lumina-prod-mysql-data，
+# 迁移自旧 CI 生成 compose，数据连续。
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: lumina-mysql
+    hostname: lumina-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${LUMINA_RPC_MYSQL_ROOT_PASSWORD:?required}
+      MYSQL_DATABASE: lumina
+      MYSQL_USER: ${LUMINA_RPC_MYSQL_USERNAME:?required}
+      MYSQL_PASSWORD: ${LUMINA_RPC_MYSQL_PASSWORD:?required}
+    ports:
+      - "3306:3306"
+    networks:
+      - lumina-net
+    volumes:
+      - mysql-data:/var/lib/mysql
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test: [CMD-SHELL, "mysqladmin ping -h 127.0.0.1 -u$${MYSQL_USER} -p$${MYSQL_PASSWORD} --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  control-plane:
+    image: ${IMAGE_CONTROL_PLANE:?required}
+    container_name: lumina-control-plane
+    restart: unless-stopped
+    environment:
+      JAVA_OPTS: "-Xms128m -Xmx256m -XX:+UseG1GC -XX:+ExitOnOutOfMemoryError"
+      LOG_LEVEL: INFO
+      MYBATIS_LOG: org.apache.ibatis.logging.nologging.NoLoggingImpl
+      MYSQL_URL: jdbc:mysql://lumina-mysql:3306/lumina?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+      MYSQL_USER: ${LUMINA_RPC_MYSQL_USERNAME:?required}
+      MYSQL_PASSWORD: ${LUMINA_RPC_MYSQL_PASSWORD:?required}
+      TZ: Asia/Shanghai
+    ports:
+      - "${CONTROL_PLANE_PORT:-8080}:8080"
+    networks:
+      - lumina-net
+    depends_on:
+      mysql:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+    logging:
+      driver: json-file
+      options:
+        max-size: 50m
+        max-file: "3"
+
+  dashboard:
+    image: ${IMAGE_DASHBOARD:?required}
+    container_name: lumina-dashboard
+    restart: unless-stopped
+    ports:
+      - "${DASHBOARD_PORT:-3000}:80"
+    networks:
+      - lumina-net
+    depends_on:
+      - control-plane
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  sample-engine:
+    image: ${IMAGE_ENGINE:?required}
+    container_name: lumina-sample-engine
+    restart: unless-stopped
+    environment:
+      JAVA_OPTS: "-Xms128m -Xmx256m -XX:+ExitOnOutOfMemoryError"
+      LOG_LEVEL: INFO
+      LUMINA_RPC_CONTROL_PLANE_URL: http://control-plane:8080
+      LUMINA_RPC_SERVER_HOST: sample-engine
+      TZ: Asia/Shanghai
+    ports:
+      - "8081:8081"
+      - "9081:9081"
+    networks:
+      - lumina-net
+    depends_on:
+      - control-plane
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+
+  sample-signal:
+    image: ${IMAGE_SIGNAL:?required}
+    container_name: lumina-sample-signal
+    restart: unless-stopped
+    environment:
+      JAVA_OPTS: "-Xms128m -Xmx256m -XX:+ExitOnOutOfMemoryError"
+      LOG_LEVEL: INFO
+      LUMINA_RPC_CONTROL_PLANE_URL: http://control-plane:8080
+      LUMINA_RPC_SERVER_HOST: sample-signal
+      TZ: Asia/Shanghai
+    ports:
+      - "8084:8084"
+      - "9084:9084"
+    networks:
+      - lumina-net
+    depends_on:
+      - control-plane
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+
+  sample-radar:
+    image: ${IMAGE_RADAR:?required}
+    container_name: lumina-sample-radar
+    restart: unless-stopped
+    environment:
+      JAVA_OPTS: "-Xms128m -Xmx256m -XX:+ExitOnOutOfMemoryError"
+      LOG_LEVEL: INFO
+      LUMINA_RPC_CONTROL_PLANE_URL: http://control-plane:8080
+      LUMINA_RPC_SERVER_HOST: sample-radar
+      TZ: Asia/Shanghai
+    ports:
+      - "8082:8082"
+      - "9082:9082"
+    networks:
+      - lumina-net
+    depends_on:
+      - control-plane
+      - sample-signal
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+
+  sample-command:
+    image: ${IMAGE_COMMAND:?required}
+    container_name: lumina-sample-command
+    restart: unless-stopped
+    environment:
+      JAVA_OPTS: "-Xms128m -Xmx256m -XX:+ExitOnOutOfMemoryError"
+      LOG_LEVEL: INFO
+      LUMINA_RPC_CONTROL_PLANE_URL: http://control-plane:8080
+      TZ: Asia/Shanghai
+    ports:
+      - "8083:8083"
+      - "9083:9083"
+    networks:
+      - lumina-net
+    depends_on:
+      - control-plane
+      - sample-engine
+      - sample-signal
+      - sample-radar
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+networks:
+  lumina-net:
+    driver: bridge
+
+volumes:
+  mysql-data:
+    name: lumina-prod-mysql-data
