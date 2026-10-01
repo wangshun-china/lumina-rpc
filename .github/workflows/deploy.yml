@@ -156,7 +156,10 @@ jobs:
         run: mvn clean package -DskipTests
 
       - name: Install pnpm
-        run: npm install -g pnpm@12
+        run: |
+          npm install -g pnpm@12
+          # store 目录必须先存在,否则 setup-node 的 cache:pnpm 会因路径不存在而失败
+          mkdir -p "$(pnpm store path)"
 
       - name: Set up Node.js
         uses: actions/setup-node@v7
