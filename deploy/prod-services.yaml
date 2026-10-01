@@ -12,8 +12,7 @@ services:
       MYSQL_DATABASE: lumina
       MYSQL_USER: ${LUMINA_RPC_MYSQL_USERNAME:?required}
       MYSQL_PASSWORD: ${LUMINA_RPC_MYSQL_PASSWORD:?required}
-    ports:
-      - "3306:3306"
+    # 不映射宿主机端口:仅容器网络内互通,避免与宿主机上其他 MySQL 冲突
     networks:
       - lumina-net
     volumes:
