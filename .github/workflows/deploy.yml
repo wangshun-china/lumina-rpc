@@ -218,7 +218,7 @@ jobs:
     # Serialize builds of the same repo+env+ref so the <name>latest tag always
     # ends up on the newest build of that ref. Different refs build in parallel.
     concurrency:
-      group: build-${{ github.repository }}-${{ github.event.inputs.target_env }}-${{ github.event.inputs.deploy_ref || 'main' }}
+      group: build-${{ github.repository }}-${{ github.event.inputs.target_env }}-${{ github.event.inputs.deploy_ref || 'main' }}-${{ matrix.image.name }}
       cancel-in-progress: false
     strategy:
       fail-fast: false
