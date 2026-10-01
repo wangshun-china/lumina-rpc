@@ -10,7 +10,7 @@ on:
       target_env:
         description: Target deployment environment / self-hosted runner label
         required: true
-        default: aliyun
+        default: wsl
         type: choice
         options:
           - aliyun
@@ -180,14 +180,14 @@ jobs:
           done < <(echo "$IMAGE_SPECS" | jq -r '.[] | "\(.name)|\(.dockerfile)|\(.tag_prefix // .name)"')
 
   deploy:
-    name: Deploy to ${{ github.event.inputs.target_env }}
+    name: Deploy to ${{ github.event.inputs.target_env || 'wsl' }}
     needs: build-and-push
-    runs-on: [self-hosted, "${{ github.event.inputs.target_env }}"]
+    runs-on: [self-hosted, "${{ github.event.inputs.target_env || 'wsl' }}"]
     environment: ${{ github.event.inputs.target_env }}
     permissions:
       contents: read
     concurrency:
-      group: deploy-${{ github.repository }}-${{ github.event.inputs.target_env }}
+      group: deploy-${{ github.repository }}-${{ github.event.inputs.target_env || 'wsl' }}
       cancel-in-progress: false
     env:
       DATABASE_ENGINE: ${{ github.event.inputs.database }}

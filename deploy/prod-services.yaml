@@ -12,9 +12,7 @@ services:
       MYSQL_DATABASE: lumina
       MYSQL_USER: ${LUMINA_RPC_MYSQL_USERNAME:?required}
       MYSQL_PASSWORD: ${LUMINA_RPC_MYSQL_PASSWORD:?required}
-    # 3306 宿主机映射必须保留:另一台机器(部署 New API 的机器)需要连接此 MySQL
-    ports:
-      - "3306:3306"
+    # 方案 B:不映射宿主机端口,纯容器网络内互通(3306 属于 new-api 的 mysql)
     networks:
       - lumina-net
     volumes:
