@@ -145,18 +145,29 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
 
+      - name: Cache Maven repository
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: maven-lumina-${{ hashFiles('**/pom.xml') }}
+          restore-keys: maven-lumina-
+
       - name: Build backend with Maven
         run: mvn clean package -DskipTests
+
+      - name: Install pnpm
+        run: npm install -g pnpm@12
 
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
           node-version: '22'
+          cache: 'pnpm'
+          cache-dependency-path: lumina-dashboard/pnpm-lock.yaml
 
       - name: Build frontend
         run: |
           cd lumina-dashboard
-          npm install -g pnpm
           pnpm install
           pnpm build
 
