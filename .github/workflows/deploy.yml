@@ -55,7 +55,7 @@ on:
 #                           [{"name":"user","dockerfile":"Dockerfile.user"},...]
 #   PROJECT_NAME          - docker compose project name, defaults to <repository>;
 #                           set it when migrating a stack that already runs under
-#                           a different project name (volumes are project-scoped)
+#                           a different project name (data lives in /data/<project>-data)
 #   DATABASE_NAME         - defaults to app
 #   DATABASE_USERNAME     - defaults to app
 #   APP_PORT              - defaults to 8080
@@ -390,6 +390,17 @@ jobs:
               tr '[:upper:]' '[:lower:]' |
               sed 's/[^a-z0-9_-]/-/g')"
           fi
+          if [[ ! "$PROJECT_NAME" =~ ^[a-z0-9][a-z0-9_-]*$ ]]; then
+            echo "Invalid Compose project name: $PROJECT_NAME" >&2
+            exit 1
+          fi
+          export PROJECT_NAME PROJECT_DATA_DIR="/data/$PROJECT_NAME-data"
+
+          mkdir -p "$PROJECT_DATA_DIR/mysql-data"
+          if [[ "$DATABASE_ENGINE" != "none" ]]; then
+            mkdir -p "$PROJECT_DATA_DIR/$DATABASE_ENGINE-data" "$PROJECT_DATA_DIR/redis-data"
+          fi
+
           DEPLOY_DIR="${HOME:-/root}/deployments/$PROJECT_NAME"
           mkdir -p "$DEPLOY_DIR"
           chmod 700 "$DEPLOY_DIR"
@@ -455,8 +466,26 @@ jobs:
 
           volumes:
             mysql-data:
+              name: ${PROJECT_NAME}_host_mysql-data
+              driver: local
+              driver_opts:
+                type: none
+                o: bind
+                device: "${PROJECT_DATA_DIR:?PROJECT_DATA_DIR is required}/mysql-data"
             postgres-data:
+              name: ${PROJECT_NAME}_host_postgres-data
+              driver: local
+              driver_opts:
+                type: none
+                o: bind
+                device: "${PROJECT_DATA_DIR:?PROJECT_DATA_DIR is required}/postgres-data"
             redis-data:
+              name: ${PROJECT_NAME}_host_redis-data
+              driver: local
+              driver_opts:
+                type: none
+                o: bind
+                device: "${PROJECT_DATA_DIR:?PROJECT_DATA_DIR is required}/redis-data"
           COMPOSE_EOF
             COMPOSE_FILES+=(-f compose.infra.yaml)
           fi

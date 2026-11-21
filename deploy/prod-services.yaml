@@ -173,4 +173,9 @@ networks:
 
 volumes:
   mysql-data:
-    name: lumina-prod-mysql-data
+    name: ${PROJECT_NAME}_host_mysql-data
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: "${PROJECT_DATA_DIR:?PROJECT_DATA_DIR is required}/mysql-data"
